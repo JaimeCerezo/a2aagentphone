@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# a2agates — install or update a phone, in one command.
+# a2aagentphone — install or update a phone, in one command.
 #
 # Why this exists: the first installs were done by an agent reading INSTALL.md,
 # deciding things and writing unit files by hand. It worked, and it cost several
@@ -16,7 +16,7 @@
 # changes what has moved. It mints no credential of its own -- a fresh phone has
 # both lists empty and answers nobody until a person admits a caller.
 #
-#   curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2agates/main/scripts/install.sh
+#   curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2aagentphone/main/scripts/install.sh
 #   sudo bash install.sh --name myagent --url https://phone.example.org/ \
 #                        --user agentuser --knows /srv/projects/myagent
 #
@@ -30,17 +30,17 @@ set -euo pipefail
 # The version this script installs. Bumped with each release, so fetching the
 # script from main and running it gets you the current phone.
 VERSION="v0.3.7"
-REPO="https://github.com/JaimeCerezo/a2agates"
+REPO="https://github.com/JaimeCerezo/a2aagentphone"
 
-# Fleet constants and the unit file now live in the package (a2agates.deploy),
+# Fleet constants and the unit file now live in the package (a2aagentphone.deploy),
 # not here. Anything only the installer knows drifts away on every machine that
 # updates instead of reinstalling -- which is every machine, because updating is
 # the path we tell them to take. They are read below, once the package is in.
 
-PREFIX=/opt/a2agates
+PREFIX=/opt/a2aagentphone
 VENV="$PREFIX/venv"
-ETC=/etc/a2agates
-UNIT=/etc/systemd/system/a2agates@.service
+ETC=/etc/a2aagentphone
+UNIT=/etc/systemd/system/a2aagentphone@.service
 
 
 # Which version to install. The constant below is a floor, not the answer:
@@ -66,7 +66,7 @@ resolve_version() {
 
 NAME=""; URL=""; USER_=""; CWD=""; HOST=""; PORT=9110; KNOWS=""
 
-die()  { echo "a2agates: $*" >&2; exit 1; }
+die()  { echo "a2aagentphone: $*" >&2; exit 1; }
 info() { echo "  $*"; }
 
 while [ $# -gt 0 ]; do
@@ -105,10 +105,10 @@ EXISTING="$ETC/$NAME.env"
 if [ -f "$EXISTING" ]; then
     [ -n "$CWD" ] || CWD=$(grep -oP '^A2A_CWD=\K.*' "$EXISTING" 2>/dev/null || true)
 fi
-[ -n "$CWD" ] || CWD="/srv/a2agates/phone-$NAME"
+[ -n "$CWD" ] || CWD="/srv/a2aagentphone/phone-$NAME"
 
 resolve_version
-echo "a2agates $VERSION -> phone '$NAME', answering as '$USER_'"
+echo "a2aagentphone $VERSION -> phone '$NAME', answering as '$USER_'"
 
 # --- where to bind ---------------------------------------------------------
 # If a reverse proxy runs in Docker it reaches the host over the bridge, not
@@ -134,17 +134,17 @@ fi
 install -d -m 755 "$PREFIX"
 [ -x "$VENV/bin/python" ] || { info "creating $VENV"; python3 -m venv "$VENV"; }
 
-info "installing a2agates $VERSION"
+info "installing a2aagentphone $VERSION"
 "$VENV/bin/pip" install --quiet --upgrade pip >/dev/null
 "$VENV/bin/pip" install --quiet --upgrade "git+$REPO@$VERSION" \
     || die "install failed. Is $VERSION a real tag?"
 
-got=$("$VENV/bin/python" -P -c 'import a2agates;print(a2agates.__version__)')
+got=$("$VENV/bin/python" -P -c 'import a2aagentphone;print(a2aagentphone.__version__)')
 info "installed $got"
 
 # The deployment comes from the package from here on: same limits, same unit,
 # whether this machine is being installed or updated.
-eval "$("$VENV/bin/python" -P -m a2agates.deploy constants)"
+eval "$("$VENV/bin/python" -P -m a2aagentphone.deploy constants)"
 
 # --- the phone's own folder ------------------------------------------------
 # Its CLAUDE.md is what the answering agent reads on every call, so it is
@@ -231,7 +231,7 @@ got \`exit 143\` and no reply. The work was done; the acknowledgement was lost.
 So:
 
 1. Answer first, in one line: *"updating now, call back in a couple of minutes"*.
-2. Run it: \`curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2agates/main/scripts/update.sh && sudo bash update.sh\`
+2. Run it: \`curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2aagentphone/main/scripts/update.sh && sudo bash update.sh\`
 3. Let the call end.
 
 **And tell whoever called that they do not need to ring back to check.** The
@@ -245,11 +245,11 @@ A card fetch costs nothing and cannot.
 
 ## About the phone itself
 
-a2agates is a **closed product**. Use it; do not modify it, extend it or argue
+a2aagentphone is a **closed product**. Use it; do not modify it, extend it or argue
 with it. If you find something wrong with it — and people do, the best fixes in
 it came from exactly that — leave a note and carry on:
 
-    a2agates-note "what you saw, on what machine, and what it cost you"
+    a2aagentphone-note "what you saw, on what machine, and what it cost you"
 
 That is the whole procedure. Nothing waits on a reply.
 EOF
@@ -272,14 +272,14 @@ fi
 # which is the honest state of a phone that has not been introduced to anyone
 # yet. Credentials appear when a person admits a caller, one at a time:
 #
-#   sudo a2agates-admin --db /var/lib/a2agates/<name> caller add <who> --from <CIDR>
+#   sudo a2aagentphone-admin --db /var/lib/a2aagentphone/<name> caller add <who> --from <CIDR>
 #
 # Rewritten on every run, on purpose: the limits are fleet constants and an
 # update is how a machine that drifted comes back into line.
 install -d -m 755 "$ETC"
 ENV_FILE="$ETC/$NAME.env"
 cat > "$ENV_FILE" <<EOF
-# Written by a2agates install.sh -- re-run it rather than editing by hand.
+# Written by a2aagentphone install.sh -- re-run it rather than editing by hand.
 # MAX_TURNS and MAX_BUDGET are fleet constants: same on every phone, so that
 # "what happens if I call it" has one answer everywhere. Do not tune them here.
 A2A_CWD=$CWD
@@ -296,24 +296,24 @@ chmod 644 "$ENV_FILE"
 # One call, the same one update.sh makes: commands, mailbox, unit file, fleet
 # limits and databases. Installing and updating place exactly the same things
 # because they run exactly the same code.
-"$VENV/bin/python" -P -m a2agates.deploy converge "$USER_" \
+"$VENV/bin/python" -P -m a2aagentphone.deploy converge "$USER_" \
     || die "could not set up the deployment."
 
 systemctl daemon-reload
-systemctl enable "a2agates@$NAME" >/dev/null 2>&1
+systemctl enable "a2aagentphone@$NAME" >/dev/null 2>&1
 
 # The unit is a systemd TEMPLATE, shared by every phone on this machine, so
 # rewriting it just changed all of them -- and any phone still running is now
 # running a definition that no longer exists on disk. That is exactly the quiet
 # drift this tool is supposed to prevent, so it is neither hidden nor left for
 # the next reboot to discover: they all get restarted, and it is said out loud.
-others=$(systemctl list-units --type=service --all --no-legend 'a2agates@*.service' 2>/dev/null \
-         | awk '{print $1}' | sed 's/^a2agates@//; s/\.service$//' | grep -vx "$NAME" || true)
+others=$(systemctl list-units --type=service --all --no-legend 'a2aagentphone@*.service' 2>/dev/null \
+         | awk '{print $1}' | sed 's/^a2aagentphone@//; s/\.service$//' | grep -vx "$NAME" || true)
 if [ -n "$others" ]; then
     info "the unit is shared; restarting the other phones too: $(echo "$others" | tr '\n' ' ')"
-    for o in $others; do systemctl restart "a2agates@$o" || true; done
+    for o in $others; do systemctl restart "a2aagentphone@$o" || true; done
 fi
-systemctl restart "a2agates@$NAME"
+systemctl restart "a2aagentphone@$NAME"
 
 # --- let the proxy through -------------------------------------------------
 if [ "$HOST" != "127.0.0.1" ] && command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
@@ -332,7 +332,7 @@ if [ "$HOST" != "127.0.0.1" ] && command -v ufw >/dev/null 2>&1 && ufw status 2>
 fi
 
 # --- stale references to an earlier, hand-made install ---------------------
-# A machine installed by hand kept `a2agates-mcp` inside its own venv, and
+# A machine installed by hand kept `a2aagentphone-mcp` inside its own venv, and
 # whoever configured a contact pointed at that path. This script installs the
 # stable one; the old path keeps working until the venv goes away, and then it
 # fails on the next *call* rather than at startup -- so it is discovered by the
@@ -340,12 +340,12 @@ fi
 # watching the output. Reported by scm-intranet, 2026-09-22.
 for f in /root/.claude.json /root/.mcp.json /home/*/.claude.json /home/*/.mcp.json; do
     [ -f "$f" ] || continue
-    bad=$(grep -oE '"/[^"]*a2agates-mcp"' "$f" 2>/dev/null | tr -d '"' \
+    bad=$(grep -oE '"/[^"]*a2aagentphone-mcp"' "$f" 2>/dev/null | tr -d '"' \
           | grep -vE "^(/usr/local/bin|$PREFIX)/" | sort -u || true)
     [ -n "$bad" ] || continue
-    echo "  [!]    $f still dials a2agates-mcp outside $PREFIX:"
+    echo "  [!]    $f still dials a2aagentphone-mcp outside $PREFIX:"
     echo "$bad" | sed 's/^/           /'
-    echo "           Point it at /usr/local/bin/a2agates-mcp -- that path survives updates."
+    echo "           Point it at /usr/local/bin/a2aagentphone-mcp -- that path survives updates."
 done
 
 # --- verify, because "it started" is not "it answers" ----------------------
@@ -357,7 +357,7 @@ if [ -n "$card" ]; then
     echo "  [ok]   answers locally, card version $(echo "$card" | grep -oP '"version"\s*:\s*"\K[^"]+' | head -1)"
     ok=$((ok+1))
 else
-    echo "  [FAIL] no card on http://$HOST:$PORT/ -- journalctl -u a2agates@$NAME"
+    echo "  [FAIL] no card on http://$HOST:$PORT/ -- journalctl -u a2aagentphone@$NAME"
 fi
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://$HOST:$PORT/" \
@@ -377,7 +377,7 @@ fi
 
 echo
 registered=$("$VENV/bin/python" -P -c \
-    "from a2agates import callers; print(callers.count('$STATE/$NAME/phone.db'))" 2>/dev/null || echo 0)
+    "from a2aagentphone import callers; print(callers.count('$STATE/$NAME/phone.db'))" 2>/dev/null || echo 0)
 
 echo "  phone:  $NAME ($got), answering as $USER_"
 echo "  limits: $MAX_TURNS turns, \$$MAX_BUDGET per call   [fleet constants]"
@@ -385,12 +385,12 @@ echo "  admitted: $registered caller(s)"
 if [ "${registered:-0}" -eq 0 ]; then
     echo "          Nobody yet, so it refuses every call. That is the correct"
     echo "          state for a phone nobody has been introduced to. To admit one:"
-    echo "            sudo a2agates-admin --db $STATE/$NAME caller add <who> \\"
+    echo "            sudo a2aagentphone-admin --db $STATE/$NAME caller add <who> \\"
     echo "                 --from <CIDR> --days 365"
     echo "          The token is printed ONCE. Write it to a 0600 file and give"
     echo "          the other end the PATH; never paste the value anywhere."
 fi
-echo "  dial:   /usr/local/bin/a2agates-mcp   <- point contacts here, never at the venv"
+echo "  dial:   /usr/local/bin/a2aagentphone-mcp   <- point contacts here, never at the venv"
 echo "  update: sudo bash update.sh"
 echo
 [ "$ok" -ge 2 ] || die "the phone is not answering correctly. Fix that before telling anyone the number."

@@ -2,7 +2,7 @@
 
 **One database per phone**, with every table inside it:
 
-    /var/lib/a2agates/<agent>/phone.db
+    /var/lib/a2aagentphone/<agent>/phone.db
         callers    who may ring this phone   (hashes only)
         contacts   who this phone may ring   (usable tokens)
         calls      what happened, both directions

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# a2agates — update every phone on this machine, and check nobody edited it.
+# a2aagentphone — update every phone on this machine, and check nobody edited it.
 #
 # The cheap path. It takes no arguments because it needs none: the phones are
-# already described in /etc/a2agates/*.env, so there is nothing for an agent to
+# already described in /etc/a2aagentphone/*.env, so there is nothing for an agent to
 # decide, look up or reason about. One command, a few lines of output.
 #
-#   curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2agates/main/scripts/update.sh
+#   curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2aagentphone/main/scripts/update.sh
 #   sudo bash update.sh
 #
 # Add --check to look without changing anything: it prints the installed
@@ -16,10 +16,10 @@
 set -euo pipefail
 
 VERSION="v0.3.7"
-REPO="https://github.com/JaimeCerezo/a2agates"
-VENV=/opt/a2agates/venv
-ETC=/etc/a2agates
-UNIT=/etc/systemd/system/a2agates@.service
+REPO="https://github.com/JaimeCerezo/a2aagentphone"
+VENV=/opt/a2aagentphone/venv
+ETC=/etc/a2aagentphone
+UNIT=/etc/systemd/system/a2aagentphone@.service
 
 # Una salida cortada se leía como éxito. Este script imprime su progreso línea
 # a línea, y la última que llegó a imprimirse el 2026-09-22 fue "updated to
@@ -53,20 +53,20 @@ resolve_version() {
 CHECK=no
 [ "${1:-}" = "--check" ] && CHECK=yes
 
-die() { echo "a2agates: $*" >&2; exit 1; }
+die() { echo "a2aagentphone: $*" >&2; exit 1; }
 
 [ -x "$VENV/bin/python" ] || die "no install at $VENV. Use install.sh first."
 [ "$CHECK" = yes ] || [ "$(id -u)" -eq 0 ] || die "run me with sudo (or --check)."
 
 # -P on every python call here, and it is not decoration. Without it Python
 # puts the current directory on sys.path, so running this from a checkout of
-# a2agates imports the CHECKOUT instead of the install: the version came from
+# a2aagentphone imports the CHECKOUT instead of the install: the version came from
 # the wrong tree and the integrity check below verified the source against
 # itself and passed. An integrity check you can fool by cd'ing somewhere is
 # worse than none, because it reports "clean".
 resolve_version
-have=$("$VENV/bin/python" -P -c 'import a2agates;print(a2agates.__version__)' 2>/dev/null || echo "?")
-echo "a2agates: installed $have, current ${VERSION#v}"
+have=$("$VENV/bin/python" -P -c 'import a2aagentphone;print(a2aagentphone.__version__)' 2>/dev/null || echo "?")
+echo "a2aagentphone: installed $have, current ${VERSION#v}"
 
 # --- has anyone edited the code? ------------------------------------------
 # The rule is that a phone is not modified locally: it is one implementation,
@@ -79,11 +79,11 @@ echo "a2agates: installed $have, current ${VERSION#v}"
 # beside it. Neither is prevented -- the operator has root -- but neither can
 # happen quietly, which is the part that matters.
 site=$("$VENV/bin/python" -P -c 'import sysconfig;print(sysconfig.get_paths()["purelib"])')
-record=$(ls -d "$site"/a2agates-*.dist-info/RECORD 2>/dev/null | head -1 || true)
+record=$(ls -d "$site"/a2aagentphone-*.dist-info/RECORD 2>/dev/null | head -1 || true)
 drift=0
 if [ -n "$record" ]; then
     while IFS=, read -r path hash _; do
-        case "$path" in a2agates/*.py) ;; *) continue ;; esac
+        case "$path" in a2aagentphone/*.py) ;; *) continue ;; esac
         [ -f "$site/$path" ] || { echo "  MISSING  $path"; drift=1; continue; }
         want=${hash#sha256=}
         got=$("$VENV/bin/python" -P - "$site/$path" <<'PY'
@@ -95,19 +95,19 @@ PY
         [ "$got" = "$want" ] || { echo "  MODIFIED $path"; drift=1; }
     done < "$record"
 
-    known=$(awk -F, '{print $1}' "$record" | grep '^a2agates/' || true)
+    known=$(awk -F, '{print $1}' "$record" | grep '^a2aagentphone/' || true)
     while read -r f; do
         rel=${f#"$site/"}
         echo "$known" | grep -qxF "$rel" || { echo "  EXTRA    $rel"; drift=1; }
-    done < <(find "$site/a2agates" -name '*.py' 2>/dev/null)
+    done < <(find "$site/a2aagentphone" -name '*.py' 2>/dev/null)
 fi
 
 if [ "$drift" = 1 ]; then
     echo
-    echo "  This install has been changed locally. a2agates is a closed product:"
+    echo "  This install has been changed locally. a2aagentphone is a closed product:"
     echo "  the next update overwrites this, and a caller can no longer tell what"
     echo "  it reached. Leave the finding in the mailbox instead --"
-    echo "    a2agates-note \"...\"   (see GOVERNANCE.md)"
+    echo "    a2aagentphone-note \"...\"   (see GOVERNANCE.md)"
     echo "  Re-running this script without --check restores the published files."
 else
     echo "  files match the published release"
@@ -115,17 +115,17 @@ fi
 
 # Surfaced here because this is the command that gets run on every machine, and
 # a mailbox nobody empties is the same as no mailbox.
-MAILBOX=/var/lib/a2agates/mailbox.md
+MAILBOX=/var/lib/a2aagentphone/mailbox.md
 if [ -f "$MAILBOX" ]; then
     notes=$(grep -c '^## ' "$MAILBOX" 2>/dev/null) || notes=0
-    [ "${notes:-0}" -gt 0 ] && echo "  mailbox: $notes note(s) waiting -- a2agates-note --read"
+    [ "${notes:-0}" -gt 0 ] && echo "  mailbox: $notes note(s) waiting -- a2aagentphone-note --read"
 fi
 
 if [ "$CHECK" = yes ]; then
     for env in "$ETC"/*.env; do
         [ -f "$env" ] || continue
         n=$(basename "$env" .env)
-        printf '  phone %-16s %s\n' "$n" "$(systemctl is-active "a2agates@$n" 2>/dev/null || echo unknown)"
+        printf '  phone %-16s %s\n' "$n" "$(systemctl is-active "a2aagentphone@$n" 2>/dev/null || echo unknown)"
     done
     exit $drift
 fi
@@ -141,12 +141,12 @@ if [ "$have" = "${VERSION#v}" ] && [ "$drift" = 0 ]; then
 else
     "$VENV/bin/pip" install --quiet --upgrade --force-reinstall "git+$REPO@$VERSION" \
         || die "update failed; the running phone is untouched."
-    now=$("$VENV/bin/python" -P -c 'import a2agates;print(a2agates.__version__)')
+    now=$("$VENV/bin/python" -P -c 'import a2aagentphone;print(a2aagentphone.__version__)')
     echo "  package updated to $now -- listener still the old one until restarted"
     package_changed=yes
 fi
 
-changed=$("$VENV/bin/python" -P -m a2agates.deploy converge 2>/dev/null) || true
+changed=$("$VENV/bin/python" -P -m a2aagentphone.deploy converge 2>/dev/null) || true
 [ -n "$changed" ] && { echo "$changed"; deployment_changed=yes; }
 
 # systemd no relee un fichero de unidad porque haya cambiado en disco: hay que
@@ -177,10 +177,10 @@ systemctl daemon-reload
 # ya no es lo que hay en disco. Un servicio que nunca arrancó también cuenta.
 stale() {
     local n=$1 env=$2 started
-    started=$(systemctl show -p ActiveEnterTimestamp --value "a2agates@$n" 2>/dev/null) || return 0
+    started=$(systemctl show -p ActiveEnterTimestamp --value "a2aagentphone@$n" 2>/dev/null) || return 0
     [ -n "$started" ] || return 0
     started=$(date -d "$started" +%s 2>/dev/null) || return 0
-    [ -n "$(find "$site/a2agates" "$UNIT" "$env" -newermt "@$started" -print -quit 2>/dev/null)" ]
+    [ -n "$(find "$site/a2aagentphone" "$UNIT" "$env" -newermt "@$started" -print -quit 2>/dev/null)" ]
 }
 
 forced=no
@@ -190,7 +190,7 @@ restarts=0
 for env in "$ETC"/*.env; do
     [ -f "$env" ] || continue
     n=$(basename "$env" .env)
-    systemctl is-enabled "a2agates@$n" >/dev/null 2>&1 || continue
+    systemctl is-enabled "a2aagentphone@$n" >/dev/null 2>&1 || continue
 
     if [ "$forced" = no ] && ! stale "$n" "$env"; then
         continue
@@ -204,7 +204,7 @@ for env in "$ETC"/*.env; do
     # So when the phone is busy we let go of the restart: hand it to systemd,
     # which is not about to die, and let it happen once the call has hung up.
     #
-    # NOT `grep a2agates@$n.service /proc/self/cgroup`. That asked "am I
+    # NOT `grep a2aagentphone@$n.service /proc/self/cgroup`. That asked "am I
     # inside?" -- identity by location -- and scm-intranet measured it failing
     # on 2026-09-22 at 19:03:50 while updating to 0.3.4: the answering agent
     # had launched this script with `systemd-run --unit=a2a-update` so the
@@ -220,8 +220,8 @@ for env in "$ETC"/*.env; do
     # other than its MainPID is a call in progress. An empty ControlGroup or a
     # MainPID of 0 means the phone is not running at all -- do not read the
     # root cgroup and mistake the whole machine for a caller.
-    cg="/sys/fs/cgroup$(systemctl show -p ControlGroup --value "a2agates@$n")/cgroup.procs"
-    main=$(systemctl show -p MainPID --value "a2agates@$n")
+    cg="/sys/fs/cgroup$(systemctl show -p ControlGroup --value "a2aagentphone@$n")/cgroup.procs"
+    main=$(systemctl show -p MainPID --value "a2aagentphone@$n")
     busy=0
     if [ -n "$main" ] && [ "$main" != "0" ] && [ -r "$cg" ]; then
         # El `|| true` no es cosmético. `grep` devuelve 1 cuando no encuentra
@@ -252,20 +252,20 @@ for env in "$ETC"/*.env; do
         # last `claude` under it is gone, which is the actual condition. It
         # runs as its own transient unit, outside that cgroup, so it does not
         # see itself and does not die with the call.
-        systemd-run --collect --unit="a2agates-bounce-$n" \
+        systemd-run --collect --unit="a2aagentphone-bounce-$n" \
             /bin/bash -c "
                 for _ in \$(seq 1 600); do
                     busy=\$(grep -vx '$main' '$cg' 2>/dev/null | wc -l)
                     [ \"\$busy\" -eq 0 ] && break
                     sleep 2
                 done
-                systemctl restart 'a2agates@$n'" >/dev/null 2>&1 \
+                systemctl restart 'a2aagentphone@$n'" >/dev/null 2>&1 \
             && printf '  phone %-16s restart deferred until this call ends (20 min cap)\n' "$n" \
-            || printf '  phone %-16s RESTART IT YOURSELF after hanging up: systemctl restart a2agates@%s\n' "$n" "$n"
+            || printf '  phone %-16s RESTART IT YOURSELF after hanging up: systemctl restart a2aagentphone@%s\n' "$n" "$n"
         continue
     fi
 
-    systemctl restart "a2agates@$n"
+    systemctl restart "a2aagentphone@$n"
     host=$(grep -oP '^A2A_HOST=\K.*' "$env"); port=$(grep -oP '^A2A_PORT=\K.*' "$env")
     sleep 2
     v=$(curl -fsS --max-time 10 "http://$host:$port/.well-known/agent-card.json" 2>/dev/null \
@@ -273,7 +273,7 @@ for env in "$ETC"/*.env; do
     if [ -n "$v" ]; then
         printf '  phone %-16s answering, card says %s\n' "$n" "$v"
     else
-        printf '  phone %-16s NOT ANSWERING -- journalctl -u a2agates@%s\n' "$n" "$n"
+        printf '  phone %-16s NOT ANSWERING -- journalctl -u a2aagentphone@%s\n' "$n" "$n"
     fi
 done
 

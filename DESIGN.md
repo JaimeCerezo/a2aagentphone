@@ -1,4 +1,4 @@
-# a2agates — the design
+# a2aagentphone — the design
 
 > **This is the design, not what runs today.** What already works and is
 > measured is in [README.md](README.md); this is where it is going. Closed on
@@ -103,7 +103,7 @@ It argues for caring who gets a token, not for crippling what answers it.
 
 ## 1. Two halves, and why the mouth splits in two
 
-`a2agates` has an ear and a mouth:
+`a2aagentphone` has an ear and a mouth:
 
 - **The ear** (`server`) listens on a port, answers A2A calls and wakes this
   machine's agent.
@@ -249,7 +249,7 @@ the whole premise of the command line tool was not editing this by hand.
 ### Two databases per phone, and the phone is self-contained
 
 ```
-/var/lib/a2agates/<agent>/
+/var/lib/a2aagentphone/<agent>/
     contacts.db     ← owner: the daemon's user     (usable tokens)
     callers.db      ← owner: the agent's user      (hashes only)
 ```
@@ -346,7 +346,7 @@ Case: **`ops` wants to be able to call the `portal` agent.**
 **1 — On the answering machine, open the door:**
 
 ```bash
-a2agates caller add ops \
+a2aagentphone caller add ops \
          --from 192.0.2.10/32 \
          --scope read-only \
          --expires 2027-09-14
@@ -393,7 +393,7 @@ protected database.
 **3 — On the calling machine, store the contact:**
 
 ```bash
-a2agates contact add portal \
+a2aagentphone contact add portal \
          --for agentuser \
          --url https://example.org/gw/portal/ \
          --token -
@@ -989,7 +989,7 @@ Already built, so the rest can be read against it:
 
 Still missing:
 
-- ~~The command line tool and the databases.~~ **Built**: `a2agates-admin`
+- ~~The command line tool and the databases.~~ **Built**: `a2aagentphone-admin`
   against one `phone.db` per phone.
 - ~~**Multiple tokens on the ear.**~~ **Built, and the single one removed
   entirely in v0.3.0.** A credential per caller, each with its own origins,
@@ -1012,7 +1012,7 @@ Still missing:
   is the only control left — but the reason it got built first was narrower and
   more concrete: **making a retry safe.**
 
-  Schema and rationale in `a2agates/db.py`. The decision that makes it work:
+  Schema and rationale in `a2aagentphone/db.py`. The decision that makes it work:
   **a row is inserted when the call arrives, before the agent starts**, and
   updated when it ends. Write only on completion and a call killed halfway
   leaves no trace at all, which is exactly the call you need. So an old row

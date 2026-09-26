@@ -1,10 +1,10 @@
-"""``a2agates-log`` — read a phone's call log.
+"""``a2aagentphone-log`` — read a phone's call log.
 
 A log nobody can read is a log nobody reads. Three questions, no SQL:
 
-    a2agates-log                     the last calls, newest first
-    a2agates-log --open              started and never finished
-    a2agates-log --same "<text>"     has this exact request run here before?
+    a2aagentphone-log                     the last calls, newest first
+    a2aagentphone-log --open              started and never finished
+    a2aagentphone-log --same "<text>"     has this exact request run here before?
 
 The last one is the point of the table. Before re-sending something that is not
 idempotent, ask: an unfinished row means it ran and nobody learned how it
@@ -19,17 +19,17 @@ import sqlite3
 import sys
 from pathlib import Path
 
-ROOT = Path("/var/lib/a2agates")
+ROOT = Path("/var/lib/a2aagentphone")
 
 
 def _phone_dir(name: str | None) -> Path:
     if name:
         return ROOT / name
-    # Directories only. /var/lib/a2agates also holds mailbox.md, and taking
+    # Directories only. /var/lib/a2aagentphone also holds mailbox.md, and taking
     # that for a phone produced "no log at .../mailbox.md/callers.db".
     dirs = sorted(p for p in ROOT.glob("*") if p.is_dir())
     if not dirs:
-        sys.exit(f"a2agates-log: no phone found under {ROOT}")
+        sys.exit(f"a2aagentphone-log: no phone found under {ROOT}")
     return dirs[0]
 
 
@@ -49,7 +49,7 @@ def _show(r: sqlite3.Row) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="a2agates-log", description=__doc__)
+    ap = argparse.ArgumentParser(prog="a2aagentphone-log", description=__doc__)
     ap.add_argument("--phone", default=None)
     ap.add_argument("--open", action="store_true", dest="open_",
                     help="calls that started and never finished")
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
 
     db = _phone_dir(args.phone) / "phone.db"
     if not db.exists():
-        sys.exit(f"a2agates-log: no log at {db}")
+        sys.exit(f"a2aagentphone-log: no log at {db}")
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
 

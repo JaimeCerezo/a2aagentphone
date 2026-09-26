@@ -61,7 +61,7 @@ from starlette.middleware import Middleware
 
 from . import __version__, callers as callers_mod, db
 
-log = logging.getLogger("a2agates.server")
+log = logging.getLogger("a2aagentphone.server")
 
 # The caller's address, carried from the ASGI layer to the executor. It is
 # known where the connection is accepted and needed where the call is logged,
@@ -72,9 +72,9 @@ log = logging.getLogger("a2agates.server")
 # Today this is the ONLY attribution there is. With a single shared token the
 # log cannot say *who* called, only from where. The callers table is what turns
 # that into a name.
-_remote = contextvars.ContextVar("a2agates_remote", default=None)
+_remote = contextvars.ContextVar("a2aagentphone_remote", default=None)
 # The caller's registered name, once there is one to know.
-_who = contextvars.ContextVar("a2agates_caller", default=None)
+_who = contextvars.ContextVar("a2aagentphone_caller", default=None)
 
 
 def _caller_address(scope) -> tuple[str | None, str | None]:
@@ -372,7 +372,7 @@ class LocalClaude:
         """
         return (
             "\n\n---\n"
-            f"[a2agates] You have ${self.max_budget_usd:.2f} for this call. It "
+            f"[a2aagentphone] You have ${self.max_budget_usd:.2f} for this call. It "
             "is checked between turns and the turn in flight is never "
             "interrupted, so when it runs out you are killed where you stand "
             "-- no cleanup, no final message.\n"
@@ -756,7 +756,7 @@ def main(argv: list[str] | None = None) -> int:
     app = Starlette(routes=routes, middleware=middleware)
 
     print(
-        f"a2agates {__version__}: agent={name} folder={cwd}\n"
+        f"a2aagentphone {__version__}: agent={name} folder={cwd}\n"
         f"  listening on http://{args.host}:{args.port}/\n"
         f"  card advertises {url}\n"
         f"  callers: {registered} registered, each with its own expiry and origins\n"
@@ -775,7 +775,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "  note: nobody is registered, so this phone will refuse every call.\n"
             "        Admit a caller with:\n"
-            f"          sudo a2agates-admin --db {args.db} caller add <name> \\\n"
+            f"          sudo a2aagentphone-admin --db {args.db} caller add <name> \\\n"
             "               --from <CIDR> --days 365",
             file=sys.stderr,
         )

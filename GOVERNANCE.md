@@ -2,7 +2,7 @@
 
 **Read this first if you are an agent that has just been handed a phone.**
 
-a2agates is a finished tool you **use**. It is not a codebase you are being
+a2aagentphone is a finished tool you **use**. It is not a codebase you are being
 invited into.
 
 - **Do not modify it.** Not the Python, not the unit file, not the limits.
@@ -23,13 +23,13 @@ install.
 You are not being told to keep quiet. You are being told where it goes.
 
 ```bash
-a2agates-note "what you saw, on what machine, and what it cost you"
+a2aagentphone-note "what you saw, on what machine, and what it cost you"
 ```
 
 Or append to the file directly — it is plain text, one entry per note:
 
 ```
-/var/lib/a2agates/mailbox.md
+/var/lib/a2aagentphone/mailbox.md
 ```
 
 That is it. Write the note and carry on with the work. Nothing waits on a

@@ -3,7 +3,7 @@
 ## Read this part only
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2agates/main/scripts/install.sh
+curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2aagentphone/main/scripts/install.sh
 sudo bash install.sh --name <agent> --url https://<public-name>/ \
                      --user <who answers> --knows <the agent's project>
 ```
@@ -21,7 +21,7 @@ it again to update, and it keeps your token and your `CLAUDE.md`.
 To update later, cheaper still, no arguments at all:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2agates/main/scripts/update.sh
+curl -fsSLO https://raw.githubusercontent.com/JaimeCerezo/a2aagentphone/main/scripts/update.sh
 sudo bash update.sh            # every phone on this machine
 sudo bash update.sh --check    # look, change nothing
 ```
@@ -67,7 +67,7 @@ left:
    proxy you already run at the host and port the script reports. The script
    will tell you if the public URL is not answering yet.
 3. **Admit the callers.** The script mints no credential — a fresh phone
-   refuses everybody until a person runs `a2agates-admin caller add`, one
+   refuses everybody until a person runs `a2aagentphone-admin caller add`, one
    caller at a time, each with its own origins and expiry (§4). Hand over the
    token's **path**, never its value: callers fetch it over SSH, redirected
    straight to a file, so it never enters a conversation.
@@ -78,14 +78,14 @@ set by the script, and the code is not modified locally. See
 
 ## Migrating an install that was set up by hand
 
-The script owns `/opt/a2agates/venv`, `/etc/a2agates/<name>.env` and the
-`a2agates@<name>` unit. If your phone lives anywhere else, do this **in order**,
+The script owns `/opt/a2aagentphone/venv`, `/etc/a2aagentphone/<name>.env` and the
+`a2aagentphone@<name>` unit. If your phone lives anywhere else, do this **in order**,
 or you will end up with two phones fighting over the same port:
 
 ```bash
-sudo cp /etc/a2agates/<old>.env /etc/a2agates/<new-name>.env  # keeps token + folder
-sudo systemctl disable --now a2agates@<old>
-sudo rm /etc/a2agates/<old>.env                                # so it cannot start
+sudo cp /etc/a2aagentphone/<old>.env /etc/a2aagentphone/<new-name>.env  # keeps token + folder
+sudo systemctl disable --now a2aagentphone@<old>
+sudo rm /etc/a2aagentphone/<old>.env                                # so it cannot start
 sudo bash install.sh --name <new-name> --url https://… --user <user> \
                      --host <your host> --port <your port>
 ```
@@ -96,10 +96,10 @@ the credential and the project folder rather than minting new ones. Pass
 bridge, which is often not the one your proxy is on.
 
 > **Before deleting the old venv, repoint anything that referenced it.** An
-> outgoing MCP contact pointing at `…/oldvenv/bin/a2agates-mcp` does not fail
+> outgoing MCP contact pointing at `…/oldvenv/bin/a2aagentphone-mcp` does not fail
 > when you restart. It fails on the next call, and from the far end it looks
 > like the other agent has stopped answering. Use
-> `/usr/local/bin/a2agates-mcp`, which the script keeps current. It warns you
+> `/usr/local/bin/a2aagentphone-mcp`, which the script keeps current. It warns you
 > if it finds such a reference, but check anyway — nothing else will.
 
 **Stop here if it worked.** Everything below is the reasoning, the by-hand
@@ -210,7 +210,7 @@ nothing, and still left changes behind.
 > phone only answers, an exhausted budget is a wasted dollar. Once it can act,
 > it is a silent inconsistency.
 >
-> a2agates tells the agent its budget at the start of every call and asks it to
+> a2aagentphone tells the agent its budget at the start of every call and asks it to
 > work in a cut-survivable order — push before deploying, small complete steps,
 > stop and report rather than be killed mid-write. That is mitigation, not a
 > guarantee: **after a call dies on budget, go and look at what it left.**
@@ -264,9 +264,9 @@ shared network, not through a host bridge address.
 ## 2. Install
 
 ```bash
-python3 -m venv ~/a2agates-venv
-~/a2agates-venv/bin/pip install "git+https://github.com/JaimeCerezo/a2agates@v0.1.12"
-~/a2agates-venv/bin/a2agates --help
+python3 -m venv ~/a2aagentphone-venv
+~/a2aagentphone-venv/bin/pip install "git+https://github.com/JaimeCerezo/a2aagentphone@v0.1.12"
+~/a2aagentphone-venv/bin/a2aagentphone --help
 ```
 
 **Pin the tag.** Not `main`. A commit is a hash of its content, so a pinned
@@ -282,7 +282,7 @@ That file is what makes the answer *your agent's* answer rather than a generic
 model's.
 
 ```bash
-mkdir -p ~/a2agates-phone
+mkdir -p ~/a2aagentphone-phone
 ```
 
 Write a `CLAUDE.md` in it covering:
@@ -357,7 +357,7 @@ when the number is handed to callers you would not hand a shell to.
     "deny": [
       "Read(//home/<user>/.ssh/**)",
       "Read(//home/<user>/.claude/**)",
-      "Read(//etc/a2agates/**)",
+      "Read(//etc/a2aagentphone/**)",
       "Read(//**/.env)",
       "Read(//**/*.cred)"
     ]
@@ -389,7 +389,7 @@ until somebody is admitted.
 Credentials appear one at a time, when a person decides to let someone in:
 
 ```bash
-sudo a2agates-admin --db /var/lib/a2agates/<name> caller add <who> \
+sudo a2aagentphone-admin --db /var/lib/a2aagentphone/<name> caller add <who> \
      --from 192.0.2.10/32 --days 365 \
      --note "who this is and when you gave it to them"
 ```
@@ -454,9 +454,9 @@ underneath your proxy, and the proxy is where your TLS and your limits are.
 A systemd template unit, so more phones cost one file each:
 
 ```ini
-# /etc/systemd/system/a2agates@.service
+# /etc/systemd/system/a2aagentphone@.service
 [Unit]
-Description=a2agates phone (%i)
+Description=a2aagentphone phone (%i)
 # docker.service matters when you bind to a docker bridge address: that
 # address does not exist until docker is up, so without this the service
 # restart-loops after a reboot.
@@ -466,8 +466,8 @@ Wants=network-online.target docker.service
 [Service]
 Type=exec
 User=<the user that answers>
-EnvironmentFile=/etc/a2agates/%i.env
-ExecStart=/home/<user>/a2agates-venv/bin/a2agates \
+EnvironmentFile=/etc/a2aagentphone/%i.env
+ExecStart=/home/<user>/a2aagentphone-venv/bin/a2aagentphone \
     --cwd ${A2A_CWD} \
     --name ${A2A_NAME} \
     --host ${A2A_HOST} \
@@ -620,7 +620,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<name>/ \
 
 # 3. With the token -> the control word from your CLAUDE.md.
 curl -s -X POST https://<name>/ \
-  -H "Authorization: Bearer $(cat ~/.a2agates-token)" \
+  -H "Authorization: Bearer $(cat ~/.a2aagentphone-token)" \
   -H 'A2A-Version: 1.0' -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"role":"ROLE_USER","parts":[{"text":"Who are you and what is your control word?"}],"messageId":"2"}}}'
 
@@ -687,14 +687,14 @@ coordinating cannot see your machine, so a paraphrase costs a round trip.
 Useful:
 
 ```bash
-systemctl status a2agates@<name> --no-pager -n 30
-journalctl -u a2agates@<name> -n 50 --no-pager
+systemctl status a2aagentphone@<name> --no-pager -n 30
+journalctl -u a2aagentphone@<name> -n 50 --no-pager
 ```
 
 | Symptom | Usually |
 |---|---|
 | `403` | The caller's address is not the one you allowed |
-| `401 unauthorized` | Any of the four caller checks: unknown token, revoked, expired, or calling from an address outside its `--from`. **They are deliberately indistinguishable** — check with `a2agates-admin caller list`, not by guessing |
+| `401 unauthorized` | Any of the four caller checks: unknown token, revoked, expired, or calling from an address outside its `--from`. **They are deliberately indistinguishable** — check with `a2aagentphone-admin caller list`, not by guessing |
 | `401` on a brand new phone | Nobody admitted yet. `caller add` |
 | Card shows `127.0.0.1` | `--public-url` not set |
 | Certificate fails | The name did not resolve when the route went live |

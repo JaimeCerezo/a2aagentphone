@@ -1,4 +1,4 @@
-"""``a2agates-admin`` — the only supported way to edit a phone's lists.
+"""``a2aagentphone-admin`` — the only supported way to edit a phone's lists.
 
 Two lists, kept apart because their owners are:
 
@@ -36,7 +36,7 @@ def _now() -> str:
 
 def _conn(path: Path) -> sqlite3.Connection:
     if not path.exists():
-        sys.exit(f"a2agates-admin: no database at {path}. Run install.sh first.")
+        sys.exit(f"a2aagentphone-admin: no database at {path}. Run install.sh first.")
     c = sqlite3.connect(str(path))
     c.row_factory = sqlite3.Row
     return c
@@ -45,7 +45,7 @@ def _conn(path: Path) -> sqlite3.Connection:
 def _dir(args) -> Path:
     d = Path(args.db)
     if not d.is_dir():
-        sys.exit(f"a2agates-admin: {d} is not a phone directory.")
+        sys.exit(f"a2aagentphone-admin: {d} is not a phone directory.")
     return d
 
 
@@ -69,7 +69,7 @@ def _mint(path: Path, alias: str) -> str:
         if row is not None:
             if not row["revoked_at"]:
                 sys.exit(
-                    f"a2agates-admin: «{alias}» is active. Use `caller rotate "
+                    f"a2aagentphone-admin: «{alias}» is active. Use `caller rotate "
                     f"{alias}` to replace its token, or `caller revoke {alias}` "
                     "first if you mean to take the access away."
                 )
@@ -91,7 +91,7 @@ def caller_rotate(args) -> None:
             (callers_mod.token_hash(token), args.alias),
         ).rowcount
     if not n:
-        sys.exit(f"a2agates-admin: no active caller «{args.alias}».")
+        sys.exit(f"a2aagentphone-admin: no active caller «{args.alias}».")
     print(f"«{args.alias}» rotated. The previous token stops working now.")
     print()
     print(f"  token:   {token}")
@@ -127,7 +127,7 @@ def caller_add(args) -> None:
                 ),
             )
         except sqlite3.IntegrityError as e:
-            sys.exit(f"a2agates-admin: {e}. Is '{args.alias}' already registered?")
+            sys.exit(f"a2aagentphone-admin: {e}. Is '{args.alias}' already registered?")
 
     print(f"Caller «{args.alias}» added.")
     print(f"  from:    {args.allowed_from}")
@@ -223,12 +223,12 @@ def contact_config(args) -> None:
         # The stable path, never the venv: an install that moves would
         # otherwise break this, and not at startup -- on the next call, which
         # looks exactly like the other agent not answering.
-        "command": "/usr/local/bin/a2agates-mcp",
+        "command": "/usr/local/bin/a2aagentphone-mcp",
         "env": {"A2A_DB": str(directory), "A2A_TIMEOUT": "420"},
     }
 
     if not args.write:
-        print(json.dumps({"mcpServers": {"a2agates": entry}}, indent=2))
+        print(json.dumps({"mcpServers": {"a2aagentphone": entry}}, indent=2))
         if rows:
             print(f"\n# reachable: {', '.join(r['alias'] for r in rows)}")
         return
@@ -239,22 +239,22 @@ def contact_config(args) -> None:
         try:
             config = json.loads(target.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            sys.exit(f"a2agates-admin: {target} is not valid JSON; not touching it.")
+            sys.exit(f"a2aagentphone-admin: {target} is not valid JSON; not touching it.")
         # A backup before rewriting somebody's config, because this file holds
         # far more than our entry and a bad merge would be expensive.
-        backup = target.with_suffix(target.suffix + ".before-a2agates")
+        backup = target.with_suffix(target.suffix + ".before-a2aagentphone")
         backup.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
         print(f"backed up to {backup}")
 
     servers = config.setdefault("mcpServers", {})
-    before = servers.get("a2agates")
-    servers["a2agates"] = entry
+    before = servers.get("a2aagentphone")
+    servers["a2aagentphone"] = entry
     target.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     if before == entry:
         print(f"{target}: already pointing at {directory}")
     else:
-        print(f"{target}: a2agates now reads its contacts from {directory}")
+        print(f"{target}: a2aagentphone now reads its contacts from {directory}")
         if before and "A2A_URL" in (before.get("env") or {}):
             print("  (replaced the old fixed-destination entry)")
     print(f"  reachable: {', '.join(r['alias'] for r in rows) or 'nobody yet'}")
@@ -263,14 +263,14 @@ def contact_config(args) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        prog="a2agates-admin",
+        prog="a2aagentphone-admin",
         description="Edit a phone's caller and contact lists.",
     )
     ap.add_argument(
         "--db",
         required=True,
         metavar="DIR",
-        help="The phone's directory, e.g. /var/lib/a2agates/<name>",
+        help="The phone's directory, e.g. /var/lib/a2aagentphone/<name>",
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 

@@ -28,7 +28,7 @@ See DESIGN.md.
 
 ## Wiring it to an agent
 
-    claude --mcp-config config.json --allowedTools "mcp__a2agates__ask_agent"
+    claude --mcp-config config.json --allowedTools "mcp__a2aagentphone__ask_agent"
 
 where ``config.json`` declares this module as a ``stdio`` server.
 """
@@ -48,7 +48,7 @@ from datetime import datetime, timezone
 
 # **One way to have contacts**: the phone's own database.
 #
-#   A2A_DB=/var/lib/a2agates/<phone>
+#   A2A_DB=/var/lib/a2aagentphone/<phone>
 #
 # There used to be a second shape -- A2A_FRIEND / A2A_URL / A2A_TOKEN, one
 # fixed destination in three environment variables -- and keeping both around
@@ -116,7 +116,7 @@ def _log(direction: str, **fields) -> int | None:
 STARTUP_NAMES = sorted(_contacts())
 
 server = MCPServer(
-    name="a2agates",
+    name="a2aagentphone",
     instructions=(
         "Lets you phone another agent. You can only call the names in this "
         "list, and there is no way to pass an address instead: "
@@ -139,9 +139,9 @@ if not DB:
         "ERROR: this phone is configured the old way"
         + (f" ({', '.join(sorted(LEGACY))} in the environment)" if LEGACY else "")
         + ". Contacts now live in the phone's database. Fix it once:\n"
-        "  sudo a2agates-admin --db /var/lib/a2agates/<phone> contact add <name> \\\n"
+        "  sudo a2aagentphone-admin --db /var/lib/a2aagentphone/<phone> contact add <name> \\\n"
         "       --url https://<their phone>/ --token-file <path to their token>\n"
-        "  sudo a2agates-admin --db /var/lib/a2agates/<phone> contact config <name> "
+        "  sudo a2aagentphone-admin --db /var/lib/a2aagentphone/<phone> contact config <name> "
         "--write ~/.claude.json\n"
         "The second command rewrites this MCP entry to use A2A_DB."
     )

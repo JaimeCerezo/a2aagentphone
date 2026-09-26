@@ -1,8 +1,16 @@
-# a2agates
+# a2aagentphone
+
+> **Renamed from `a2agates` on 2026-09-26.** Same project, same history, same
+> code — only the name changed. If you have an install that predates this,
+> the package, the five CLI commands, and the default paths (`/opt/a2agates`,
+> `/etc/a2agates`, `/var/lib/a2agates`) all carried the old name; `install.sh`
+> from this repo migrates them to the `a2aagentphone` equivalents. `pip
+> install git+.../a2agates@<tag>` for any tag before this date still works —
+> point it at the new repo going forward.
 
 **Give an agent a phone number.**
 
-`a2agates` puts a [A2A](https://a2a-protocol.org/) endpoint in front of a
+`a2aagentphone` puts a [A2A](https://a2a-protocol.org/) endpoint in front of a
 [Claude Code](https://claude.com/claude-code) agent, so another agent can call
 it and get an answer — and gives that agent a way to place calls of its own.
 
@@ -23,11 +31,11 @@ is public.
 
 ## Two halves
 
-**The ear** (`a2agates.server`) listens on a port. When a call arrives, it runs
+**The ear** (`a2aagentphone.server`) listens on a port. When a call arrives, it runs
 the machine's own `claude` in the agent's project folder and returns what it
 answers.
 
-**The mouth** (`a2agates.mcp`) is an MCP server exposing one tool, so an agent
+**The mouth** (`a2aagentphone.mcp`) is an MCP server exposing one tool, so an agent
 can call another one without leaving its conversation. It is an MCP rather than
 a documented `curl` for one reason: **the agent cannot call anyone who is not in
 its contact list.** The set of allowed destinations stops being a rule written
@@ -67,8 +75,8 @@ Requires **Python ≥3.10** and a `claude` on the `PATH`, authenticated as the
 user that will run the process.
 
 ```bash
-python3 -m venv ~/a2agates-venv
-~/a2agates-venv/bin/pip install "git+https://github.com/JaimeCerezo/a2agates@v0.3.0"
+python3 -m venv ~/a2aagentphone-venv
+~/a2aagentphone-venv/bin/pip install "git+https://github.com/JaimeCerezo/a2aagentphone@v0.3.0"
 ```
 
 Pin a tag or a commit. A commit id is a hash of its content, so "install this
@@ -83,12 +91,12 @@ README is what the thing is; that one is how to stand it up.
 ## Run the ear
 
 ```bash
-a2agates \
+a2aagentphone \
   --cwd /path/to/project \
   --name "the agent's name" \
   --port 9110 \
   --public-url https://example.org/gw/agent/ \
-  --db /var/lib/a2agates/the-agent
+  --db /var/lib/a2aagentphone/the-agent
 ```
 
 `--db` is required and is where the **callers** live: who may ring this phone,
@@ -97,7 +105,7 @@ A phone with an empty table refuses every call, which is the right state for
 one nobody has been introduced to yet — admit somebody deliberately:
 
 ```bash
-sudo a2agates-admin --db /var/lib/a2agates/the-agent \
+sudo a2aagentphone-admin --db /var/lib/a2aagentphone/the-agent \
      caller add ops --from 192.0.2.10/32 --days 365
 ```
 
@@ -151,7 +159,7 @@ never run this.
 ## Wire the mouth to an agent
 
 ```bash
-claude --mcp-config config.json --allowedTools "mcp__a2agates__ask_agent"
+claude --mcp-config config.json --allowedTools "mcp__a2aagentphone__ask_agent"
 ```
 
 `config.json` declares a `stdio` server pointed at the phone's own directory,
@@ -159,19 +167,19 @@ and the contacts come from the table inside it. Write it with the tool rather
 than by hand — it keeps a backup of the file it touches:
 
 ```bash
-sudo a2agates-admin --db /var/lib/a2agates/the-agent \
+sudo a2aagentphone-admin --db /var/lib/a2aagentphone/the-agent \
      contact config --write ~/.claude.json
 ```
 
 ```json
-{"mcpServers": {"a2agates": {
-  "command": "/usr/local/bin/a2agates-mcp",
-  "env": {"A2A_DB": "/var/lib/a2agates/the-agent",
+{"mcpServers": {"a2aagentphone": {
+  "command": "/usr/local/bin/a2aagentphone-mcp",
+  "env": {"A2A_DB": "/var/lib/a2aagentphone/the-agent",
           "A2A_TIMEOUT": "420"}}}}
 ```
 
-> **Point at `/usr/local/bin/a2agates-mcp`, never into the venv.** An install
-> whose contact pointed straight at `…/somevenv/bin/a2agates-mcp` broke the day
+> **Point at `/usr/local/bin/a2aagentphone-mcp`, never into the venv.** An install
+> whose contact pointed straight at `…/somevenv/bin/a2aagentphone-mcp` broke the day
 > that venv was replaced — and it did not fail on restart. It failed on the
 > **next call**, which from the far end looks exactly like the other agent not
 > answering. The install script keeps that symlink current across upgrades and

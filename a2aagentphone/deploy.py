@@ -43,17 +43,17 @@ import sys
 MAX_TURNS = 60
 MAX_BUDGET = "5.00"
 
-PREFIX = "/opt/a2agates"
+PREFIX = "/opt/a2aagentphone"
 VENV = f"{PREFIX}/venv"
-ETC = "/etc/a2agates"
-STATE = "/var/lib/a2agates"
+ETC = "/etc/a2aagentphone"
+STATE = "/var/lib/a2aagentphone"
 
 # Every command the phone ships. All of them are console scripts of this
 # package, so `pip install` puts them in the venv and converge() links them
 # where people can reach them. Nothing is fetched separately and nothing can be
 # placed by one script and forgotten by the other -- which is how the tools,
 # the limits and the unit each went stale in turn on 2026-09-22.
-COMMANDS = ("a2agates", "a2agates-mcp", "a2agates-admin", "a2agates-note", "a2agates-log")
+COMMANDS = ("a2aagentphone", "a2aagentphone-mcp", "a2aagentphone-admin", "a2aagentphone-note", "a2aagentphone-log")
 BINDIR = "/usr/local/bin"
 MAILBOX = f"{STATE}/mailbox.md"
 
@@ -69,7 +69,7 @@ RETIRED = ("A2A_TOKEN_FILE", "A2A_TOKEN_EXPIRES")
 
 UNIT = """\
 [Unit]
-Description=a2agates phone (%i)
+Description=a2aagentphone phone (%i)
 # docker.service because a phone often binds to the bridge and is fronted by a
 # proxy in a container. Without this it restart-loops after a reboot.
 After=network-online.target docker.service
@@ -94,7 +94,7 @@ User={user}
 # had ever seen it.
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile={etc}/%i.env
-ExecStart={venv}/bin/a2agates \\
+ExecStart={venv}/bin/a2aagentphone \\
     --cwd ${{A2A_CWD}} \\
     --name ${{A2A_NAME}} \\
     --host ${{A2A_HOST}} \\
@@ -132,7 +132,7 @@ def _retire_token_file(path: str, changed: list[str]) -> None:
     """Destroy the retired shared token, rather than leaving it on disk.
 
     Deliberately a delete and not a rename, which is the opposite of what
-    :func:`a2agates.db._absorb` does with a superseded database -- and the
+    :func:`a2aagentphone.db._absorb` does with a superseded database -- and the
     difference is the point. A migrated database is *evidence*, worth keeping
     so the migration can be checked afterwards. A retired credential is a
     *liability*: its whole value to an attacker survives being renamed, and
@@ -156,7 +156,7 @@ def _retire_token_file(path: str, changed: list[str]) -> None:
 
 
 def converge(user: str | None = None) -> list[str]:
-    """Put the machine into the state an a2agates install is supposed to be in.
+    """Put the machine into the state an a2aagentphone install is supposed to be in.
 
     **One code path, called by both scripts**, and that is the whole reason it
     exists. Installing and updating used to place different things, so every
@@ -196,14 +196,14 @@ def converge(user: str | None = None) -> list[str]:
     os.makedirs(STATE, exist_ok=True)
     if not os.path.exists(MAILBOX):
         with open(MAILBOX, "w", encoding="utf-8") as fh:
-            fh.write("# a2agates — mailbox\n\nNotes from agents on this "
+            fh.write("# a2aagentphone — mailbox\n\nNotes from agents on this "
                      "machine. Append only.\n")
         os.chmod(MAILBOX, 0o666)
         changed.append("mailbox created")
 
     # The unit, rendered from this version rather than from a copy in a shell
     # script that can fall behind.
-    unit = "/etc/systemd/system/a2agates@.service"
+    unit = "/etc/systemd/system/a2aagentphone@.service"
     if user is None and os.path.exists(unit):
         with open(unit, encoding="utf-8") as fh:
             for line in fh:
@@ -303,14 +303,14 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if args and args[0] == "unit":
         if len(args) < 2:
-            print("usage: -m a2agates.deploy unit <user>", file=sys.stderr)
+            print("usage: -m a2aagentphone.deploy unit <user>", file=sys.stderr)
             return 2
         sys.stdout.write(unit_text(args[1]))
         return 0
     if args and args[0] == "converge":
         user = args[1] if len(args) > 1 else None
         # Each item carries its own verb. A single trailing "updated" turned
-        # "retired shared token /etc/a2agates/x.token" into a line claiming the
+        # "retired shared token /etc/a2aagentphone/x.token" into a line claiming the
         # file had been updated, when converge had just deleted it -- the one
         # destructive thing it does, described as the mildest.
         for item in converge(user):
@@ -332,14 +332,14 @@ def main(argv: list[str] | None = None) -> int:
         # -- which is the exact failure this module exists to kill.
         #
         # Every value is quoted, and that is a bug of its own worth not
-        # repeating: unquoted, `eval` read `TOOLS=a2agates-note a2agates-log`
+        # repeating: unquoted, `eval` read `TOOLS=a2aagentphone-note a2aagentphone-log`
         # the only way it could -- assign for one command, then RUN the second
         # word. Every update quietly printed the call log. Harmless that time.
         print(f'MAX_TURNS="{MAX_TURNS}"')
         print(f'MAX_BUDGET="{MAX_BUDGET}"')
         print(f'STATE="{STATE}"')
         return 0
-    print("usage: -m a2agates.deploy {unit <user>|constants|converge [user]}", file=sys.stderr)
+    print("usage: -m a2aagentphone.deploy {unit <user>|constants|converge [user]}", file=sys.stderr)
     return 2
 
 

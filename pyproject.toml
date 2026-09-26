@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "a2agates"
+name = "a2aagentphone"
 version = "0.3.7"
 description = "Give a Claude Code agent a phone number: answer A2A calls, and place them."
 readme = "README.md"
@@ -24,14 +24,14 @@ dependencies = [
 ]
 
 [project.scripts]
-a2agates = "a2agates.server:main"
-a2agates-mcp = "a2agates.mcp:main"
-a2agates-admin = "a2agates.admin:main"
-a2agates-note = "a2agates.note:main"
-a2agates-log = "a2agates.logcli:main"
+a2aagentphone = "a2aagentphone.server:main"
+a2aagentphone-mcp = "a2aagentphone.mcp:main"
+a2aagentphone-admin = "a2aagentphone.admin:main"
+a2aagentphone-note = "a2aagentphone.note:main"
+a2aagentphone-log = "a2aagentphone.logcli:main"
 
 [project.urls]
-Homepage = "https://github.com/JaimeCerezo/a2agates"
+Homepage = "https://github.com/JaimeCerezo/a2aagentphone"
 
 [tool.hatch.build.targets.wheel]
-packages = ["a2agates"]
+packages = ["a2aagentphone"]
