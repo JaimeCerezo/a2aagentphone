@@ -96,6 +96,12 @@ done
 case "$URL" in https://*) ;; *) die "--url must be https. The token travels in a header." ;; esac
 [ -n "$USER_" ] || USER_="${SUDO_USER:-root}"
 id "$USER_" >/dev/null 2>&1 || die "user '$USER_' does not exist."
+# Its REAL primary group, not a group assumed to be named after it. A machine
+# where several identities are the same agent gives them a shared primary group
+# on purpose -- and then `-g $USER_` fails with "invalid group", which is where
+# an install stops dead halfway. Hit on 2026-09-27 installing as `aris-phone`,
+# whose primary group is `proj-aris`.
+GROUP_=$(id -gn "$USER_")
 [ "${URL%/}" = "$URL" ] && URL="$URL/"
 
 # An existing phone keeps its folder. Re-running the script is how a machine is
@@ -150,7 +156,7 @@ eval "$("$VENV/bin/python" -P -m a2aagentphone.deploy constants)"
 # Its CLAUDE.md is what the answering agent reads on every call, so it is
 # written once and then left alone -- an update must never overwrite what an
 # operator has tuned about how their agent answers.
-install -d -o "$USER_" -g "$USER_" -m 750 "$CWD"
+install -d -o "$USER_" -g "$GROUP_" -m 750 "$CWD"
 
 # Where the answering agent's real knowledge lives. The phone's folder is
 # deliberately NOT the project (see the CLAUDE.md below for why), so without
@@ -253,7 +259,7 @@ it came from exactly that — leave a note and carry on:
 
 That is the whole procedure. Nothing waits on a reply.
 EOF
-    chown "$USER_:$USER_" "$CWD/CLAUDE.md"
+    chown "$USER_:$GROUP_" "$CWD/CLAUDE.md"
 elif [ -n "$KNOWS" ]; then
     # Said rather than silently ignored. The file is the operator's and an
     # update must never rewrite it, so passing --knows to an existing phone has
