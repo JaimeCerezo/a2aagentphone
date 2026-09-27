@@ -63,6 +63,8 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import stat
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -161,8 +163,73 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _group_shared(directory: str | Path) -> bool:
+    """Has whoever installed this phone deliberately opened it to a group?
+
+    A phone is normally one machine, one user, and 0700/0600 is exactly right.
+    But a machine can run **several system identities that are the same
+    agent** -- the interactive session, the identity that fires scheduled work,
+    the identity that answers the phone -- and all of them need the contacts and
+    the outbound tokens. From outside it is still one number; inside it is three
+    processes behind it.
+
+    Found on 2026-09-27, on two machines at once, and it had been failing in
+    silence: the identity that *answers* re-tightens the files on **every**
+    open, because ``_restrict`` runs from ``_connect`` and not just from
+    ``init``. So an operator who opened the directory to a shared group saw it
+    work, and then saw the calling identity lose access a few seconds after the
+    next answered call -- with no error anywhere, and nothing to notice until
+    somebody tried to dial. Reopening the permissions from outside cannot win a
+    race against a chmod that runs on every connection.
+
+    The switch is **setgid plus group-write** on the directory, and the setgid
+    bit is the load-bearing half. Group-write alone looked like the obvious
+    signal and is the wrong one: ``umask 002`` is normal on a machine with
+    several identities sharing a tree, so a directory created there is
+    group-writable *by accident*, and a fresh install would have opened itself
+    up with nobody asking. Caught by the test on 2026-09-27, before release.
+
+    setgid cannot arrive by umask. Somebody has to type ``chmod 2770``, which is
+    the deliberate act this is looking for -- and it is the mode that case needs
+    anyway, so that a file created by any of the identities keeps the group.
+
+    Nothing changes for a phone nobody has opened up: fresh installs still get
+    0700 and 0600.
+    """
+    try:
+        mode = Path(directory).stat().st_mode
+    except OSError:
+        return False
+    return bool(mode & stat.S_ISGID) and bool(mode & stat.S_IWGRP)
+
+
+def _dir_mode(directory: str | Path) -> int:
+    # setgid on the shared variant, so a file created by any of the identities
+    # keeps the group instead of falling back to the creator's own.
+    return 0o2770 if _group_shared(directory) else 0o700
+
+
+def _chmod_if_needed(path: str | Path, mode: int) -> None:
+    """chmod only when the mode is actually wrong.
+
+    The "only when needed" matters more than it looks: in the shared case the
+    mode is already what we want, so no chmod is attempted at all, and the
+    non-owner identities never fight over it. And a chmod that genuinely cannot
+    be applied says so on stdout rather than vanishing -- the journal is where
+    somebody will look, and this project has already paid once for a warning
+    nobody could see.
+    """
+    path = Path(path)
+    try:
+        if stat.S_IMODE(path.stat().st_mode) == mode:
+            return
+        path.chmod(mode)
+    except OSError as e:
+        print(f"a2aagentphone: cannot set mode {mode:o} on {path}: {e}", file=sys.stderr)
+
+
 def _restrict(path: Path) -> None:
-    """0600 on the database and on its WAL sidecars.
+    """Lock down the database and its WAL sidecars.
 
     ``init`` chmods the database itself, but SQLite creates ``-wal`` and
     ``-shm`` on first write, with whatever the umask says -- and the write-ahead
@@ -170,14 +237,15 @@ def _restrict(path: Path) -> None:
     token. Found on 2026-09-22 with contacts.db-wal sitting at 0644 inside a
     0700 directory: no exposure that time, because the directory saved it, but
     the file mode was a lie about how protected the contents were.
+
+    0600, unless the directory is group-shared on purpose -- see
+    ``_group_shared``. The directory is what decides; these files only follow.
     """
+    mode = 0o660 if _group_shared(path.parent) else 0o600
     for suffix in ("", "-wal", "-shm"):
         candidate = Path(str(path) + suffix)
-        try:
-            if candidate.exists():
-                candidate.chmod(0o600)
-        except OSError:
-            pass
+        if candidate.exists():
+            _chmod_if_needed(candidate, mode)
 
 
 def _connect(path: str | Path) -> sqlite3.Connection:
@@ -256,7 +324,7 @@ def init(directory: str | Path) -> Path:
     """Create this phone's database. Safe to run again."""
     d = Path(directory)
     d.mkdir(parents=True, exist_ok=True)
-    d.chmod(0o700)
+    _chmod_if_needed(d, _dir_mode(d))
     phone = path_for(d)
     with _connect(phone) as c:
         c.executescript(CALLERS_SCHEMA + CONTACTS_SCHEMA + CALLS_SCHEMA)

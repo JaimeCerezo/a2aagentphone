@@ -291,7 +291,11 @@ def converge(user: str | None = None) -> list[str]:
                             pass
                 except (KeyError, PermissionError):
                     pass
-            os.chmod(directory, 0o700)
+            # Not a flat 0700: a machine whose operator opened this directory to
+            # a group is telling us several identities are the same agent behind
+            # one number, and an install must not undo that. See
+            # db._group_shared for what it cost to learn.
+            db_mod._chmod_if_needed(directory, db_mod._dir_mode(directory))
             if fresh:
                 changed.append(f"{name} databases created")
 
