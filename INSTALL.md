@@ -164,18 +164,36 @@ that could not answer, on a machine where everything looked healthy.
 setup token.** In the unit:
 
 ```ini
-EnvironmentFile=-/etc/a2aagentphone/<name>.credentials.env
+EnvironmentFile=-/etc/a2aagentphone/credentials/<name>.env
+EnvironmentFile=/etc/a2aagentphone/<name>.env
 ```
 
-That file is **yours** — the installer never writes, merges or removes it. One
-line inside, mode `0640`:
+That first file is **yours** — the installer never writes, merges or removes
+it. One line inside, mode `0640`:
 
 ```
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-…
 ```
 
 If the token already lives somewhere else on the machine, **symlink rather than
-copy**: one secret with two names beats two files to rotate.
+copy**: one secret with two names beats two files to rotate — as long as the
+target is not somewhere another tool writes.
+
+> **Two details there are load-bearing, and both were learned the hard way in
+> the two minutes v0.5.1 was in use.**
+>
+> **It goes in a subdirectory.** The installer discovers phones by globbing
+> `/etc/a2aagentphone/*.env`. A file called `<name>.credentials.env` in that
+> directory is read as a **second phone** called `<name>.credentials`: it gets
+> a database created for it, and it gets **rewritten** with that phantom
+> phone's settings. Never put your own files in a directory a tool enumerates.
+>
+> **It is listed *before* the settings file.** systemd applies
+> `EnvironmentFile` entries in order and **the last one wins**. Listed second,
+> anything this file defines silently overrides the phone's own configuration —
+> which is exactly how a phone ended up attached to an empty database, refusing
+> every call, with a completely healthy-looking service. Listed first, the
+> phone's own settings always win.
 
 In a container there is usually nothing to do — the token is already in the
 environment the phone inherits.

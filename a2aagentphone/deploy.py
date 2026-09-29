@@ -93,26 +93,42 @@ User={user}
 # That is the warning meant to be read after a call died mid-write, and nobody
 # had ever seen it.
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile={etc}/%i.env
-# Optional, and YOURS: this file is never written, merged or removed by the
-# installer, unlike the one above. It exists for one setting.
+# Optional, and YOURS: never written, merged or removed by the installer,
+# unlike the settings file below. It exists for one variable,
+# CLAUDE_CODE_OAUTH_TOKEN, and the two details around it are not cosmetic.
 #
-# The agent that answers needs a Claude credential, and there are two shapes.
-# A stored login in the answering user's $HOME works and is what most phones
-# use. But it carries a refresh token, and a refresh token rotates when it is
-# used -- so the moment a machine has several system identities for the same
-# agent (`-agent`, `-cron`, `-phone`) sharing a copy of that file, they
-# invalidate each other, silently, and the phone stops being able to answer
-# without anything saying so.
+# WHY IT EXISTS. The agent that answers needs a Claude credential, and there
+# are two shapes. A stored login in the answering user's $HOME is what most
+# phones use -- but it carries a refresh token, and a refresh token rotates
+# when it is used, so the moment a machine runs several system identities for
+# the same agent (`-agent`, `-cron`, `-phone`) sharing a copy of that file,
+# they invalidate each other, silently. A setup token does not refresh and
+# cannot collide, but it arrives as an environment variable and a unit
+# inherits one from nowhere. Hence this line.
 #
-# A setup token does not refresh and cannot collide, but it arrives as an
-# environment variable, and a unit does not inherit one from anywhere. Hence
-# this line. Put CLAUDE_CODE_OAUTH_TOKEN in that file, mode 0640, or point it
-# at wherever the token already lives -- a symlink is read fine, and one file
-# with two names beats two files with one secret.
+# WHY IT IS IN A SUBDIRECTORY, AND NOT `{etc}/%i.credentials.env`. Because
+# that is what it was in v0.5.1, for about two minutes of real use, and the
+# installer discovers phones by globbing `{etc}/*.env`. It read the file as a
+# SECOND PHONE named `<name>.credentials`, created a database for it, and
+# rewrote it with that phantom phone's settings. Do not put anything of your
+# own in a directory a tool enumerates.
+#
+# WHY IT IS LISTED BEFORE THE SETTINGS FILE, WHICH IS THE PART THAT MATTERS.
+# systemd applies EnvironmentFile entries in order and the LAST one wins. With
+# this line second, anything this file happened to define would silently
+# override the phone's own configuration. That is not hypothetical either: in
+# v0.5.1 it had been pointed at a file the installer had just written A2A_DB
+# into, so the running phone came up attached to an empty database and refused
+# every call while looking perfectly healthy. Listed first, the phone's own
+# settings always win and the whole class of accident is gone.
+#
+# Put ONE line in it, mode 0640. A symlink is read fine -- one secret with two
+# names beats two files to rotate -- as long as its target is not somewhere
+# another tool writes.
 #
 # The leading `-` means a phone that does not need it starts exactly as before.
-EnvironmentFile=-{etc}/%i.credentials.env
+EnvironmentFile=-{etc}/credentials/%i.env
+EnvironmentFile={etc}/%i.env
 ExecStart={venv}/bin/a2aagentphone \\
     --cwd ${{A2A_CWD}} \\
     --name ${{A2A_NAME}} \\
