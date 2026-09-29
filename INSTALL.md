@@ -132,8 +132,64 @@ The honest asymmetry: an SSH key is used by a person, and a person cannot be
 talked into using it by something they read. An agent can. That is the one real
 difference, and it is about the holder, not about the phone.
 
-A dedicated user needs its own Claude authentication, which needs a real
-terminal. Plan for a human to run that step.
+#### Its Claude credential, and which of the two shapes to give it
+
+Whichever user answers needs a Claude credential of its own, and **there are two
+shapes with very different failure modes.** Pick deliberately; the wrong one
+fails silently, months later.
+
+| | **A stored login** (`~/.claude/.credentials.json`) | **A setup token** (`CLAUDE_CODE_OAUTH_TOKEN`) |
+|---|---|---|
+| How you get it | `/login` in a real terminal, as that user | `claude setup-token`, once, anywhere — it prints a value |
+| Is it tied to the user? | **Yes** — it is written into that user's `$HOME` | No. It is a string; install it wherever |
+| Lifetime | Short, kept alive by refreshing | About a year, no refreshing |
+| Two identities sharing one copy | **They destroy each other** — see below | Harmless |
+| Where the phone reads it | The answering user's `$HOME` | The environment, via `EnvironmentFile` in the unit |
+
+**The trap is the refresh token.** A stored login carries one, and a refresh
+token **rotates when it is used**: the moment a second identity refreshes with a
+copy of the same file, the first copy is dead. That is not exotic — it is the
+normal shape of a machine that split one agent account into `-agent`, `-cron`
+and `-phone` by copying its state.
+
+And when it breaks, it breaks invisibly. The failed refresh **rewrites the file
+without its tokens**, so the credential is not merely stale, it is gone. Calls
+still arrive and still **authenticate correctly** at the door; they die
+afterwards, when the agent starts. The caller sees *"Failed to authenticate:
+OAuth session expired"* and reasonably concludes the phone's own token is
+broken, which is the one thing that was fine. Measured once: 30 hours of a phone
+that could not answer, on a machine where everything looked healthy.
+
+**So: if this machine runs more than one identity for the same agent, use a
+setup token.** In the unit:
+
+```ini
+EnvironmentFile=-/etc/a2aagentphone/<name>.credentials.env
+```
+
+That file is **yours** — the installer never writes, merges or removes it. One
+line inside, mode `0640`:
+
+```
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-…
+```
+
+If the token already lives somewhere else on the machine, **symlink rather than
+copy**: one secret with two names beats two files to rotate.
+
+In a container there is usually nothing to do — the token is already in the
+environment the phone inherits.
+
+**The phone tells you which one it found**, at every startup:
+
+```
+  agent auth: CLAUDE_CODE_OAUTH_TOKEN
+  agent auth: /home/some-phone/.claude/.credentials.json
+```
+
+and says so loudly when it found neither, or found a file a failed refresh had
+emptied. That line exists because this is the one failure a phone cannot report
+when it happens.
 
 ### What the caller may do — and the correction that cost us a day
 

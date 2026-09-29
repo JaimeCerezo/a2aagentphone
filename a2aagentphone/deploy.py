@@ -94,6 +94,25 @@ User={user}
 # had ever seen it.
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile={etc}/%i.env
+# Optional, and YOURS: this file is never written, merged or removed by the
+# installer, unlike the one above. It exists for one setting.
+#
+# The agent that answers needs a Claude credential, and there are two shapes.
+# A stored login in the answering user's $HOME works and is what most phones
+# use. But it carries a refresh token, and a refresh token rotates when it is
+# used -- so the moment a machine has several system identities for the same
+# agent (`-agent`, `-cron`, `-phone`) sharing a copy of that file, they
+# invalidate each other, silently, and the phone stops being able to answer
+# without anything saying so.
+#
+# A setup token does not refresh and cannot collide, but it arrives as an
+# environment variable, and a unit does not inherit one from anywhere. Hence
+# this line. Put CLAUDE_CODE_OAUTH_TOKEN in that file, mode 0640, or point it
+# at wherever the token already lives -- a symlink is read fine, and one file
+# with two names beats two files with one secret.
+#
+# The leading `-` means a phone that does not need it starts exactly as before.
+EnvironmentFile=-{etc}/%i.credentials.env
 ExecStart={venv}/bin/a2aagentphone \\
     --cwd ${{A2A_CWD}} \\
     --name ${{A2A_NAME}} \\

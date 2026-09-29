@@ -283,6 +283,17 @@ What *is* built, and verified rather than assumed:
 
 Read this part.
 
+**The agent that answers needs a Claude credential, and the shape matters.**
+Either a stored login in the answering user's `$HOME`, or
+`CLAUDE_CODE_OAUTH_TOKEN` in the environment (`EnvironmentFile` in the unit —
+since v0.5.1). Prefer the token when a machine runs several identities for the
+same agent: a stored login carries a **refresh token, which rotates when used**,
+so two identities sharing a copy invalidate each other — silently, and the
+failed refresh empties the file on its way out. The phone names which credential
+it found at every startup, and warns when it found none: it is the one failure
+it cannot report at the time, because the call authenticates correctly and dies
+afterwards. See [INSTALL.md](INSTALL.md) §0.
+
 **The agent that answers inherits everything its user can read.** Measured: you
 can ask it to list `~/.claude/` and confirm that `.credentials.json` is there.
 Actions that **write** are stopped — the task parks in `input-required` waiting

@@ -109,7 +109,60 @@ BEARER = "bearer"
 # What the agent inherits from the server's environment. Kept deliberately
 # short: the rest of the server's environment is none of the agent's business.
 # HOME is in, because that is where its memory and its credentials live.
-_INHERITED = ("PATH", "HOME", "LANG", "TERM", "SHELL", "USER", "LOGNAME", "TZ")
+#
+# CLAUDE_CODE_OAUTH_TOKEN is in for the same reason HOME is -- it is the other
+# place a credential can live -- and it was added in v0.5.1 because leaving it
+# out forced every phone onto the fragile one. Concretely, and measured:
+#
+#   * A stored login (`~/.claude/.credentials.json`) carries a REFRESH token,
+#     and a refresh token ROTATES when it is used. Two system identities of the
+#     same agent handed a copy of the same file -- which is exactly what
+#     splitting one account into `-agent` / `-cron` / `-phone` produces -- will
+#     invalidate each other the first time either refreshes.
+#   * A setup token does not refresh, so it does not rotate, so it cannot
+#     collide. But it arrives as an environment variable, and this list is what
+#     decided whether the answering agent ever saw it. It did not.
+#
+# On 2026-09-29 that combination had a phone unable to answer for 30 hours with
+# nobody aware, because the failure is invisible from the answering side: the
+# call arrives, AUTHENTICATES CORRECTLY, and dies afterwards when the agent
+# starts. See the credential check in `main`.
+#
+# This exposes nothing new to the agent. It could already read the credentials
+# in its own $HOME; this is the same secret reachable by another name.
+_INHERITED = (
+    "PATH", "HOME", "LANG", "TERM", "SHELL", "USER", "LOGNAME", "TZ",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+)
+
+
+def _credential_state() -> tuple[bool, str]:
+    """Can the agent this phone launches authenticate at all?
+
+    Answered at startup, out loud, because the answer is otherwise unknowable
+    until somebody calls -- and a phone that cannot answer does not complain.
+    It is the caller who finds out, and what the caller sees ("Failed to
+    authenticate: OAuth session expired") points at the phone's own token,
+    which is the one thing that was fine.
+
+    Deliberately not fatal. A phone whose credential is being repaired should
+    keep its port open and keep logging refused calls; refusing to start would
+    only remove the evidence.
+    """
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip():
+        return True, "CLAUDE_CODE_OAUTH_TOKEN"
+    stored = Path(os.environ.get("HOME", "~")).expanduser() / ".claude/.credentials.json"
+    try:
+        body = json.loads(stored.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, f"no {stored}, and CLAUDE_CODE_OAUTH_TOKEN is not set"
+    oauth = body.get("claudeAiOauth") or body
+    # A failed refresh rewrites this file WITHOUT the tokens, keeping the other
+    # keys. So "the file exists" is not the question; "does it still hold
+    # anything usable" is. That is the shape the 2026-09-29 outage left behind.
+    if oauth.get("accessToken") or oauth.get("refreshToken"):
+        return True, str(stored)
+    return False, f"{stored} exists but holds no token -- a refresh failed and emptied it"
 
 
 # --------------------------------------------------------------------------
@@ -765,6 +818,7 @@ def main(argv: list[str] | None = None) -> int:
         f"  card advertises {url}\n"
         f"  callers: {registered} registered, each with its own token and expiry\n"
         f"  origin:  not checked -- the token is the whole credential (v0.5.0)\n"
+        f"  agent auth: {_credential_state()[1]}\n"
         f"  auto-approved tools: {args.allowed_tools or 'the defaults'}\n"
         f"  permissions: "
         f"{'FULL -- every caller acts as this user' if args.full_permissions else 'prompted, so nothing that needs approval can run'}\n"
@@ -788,6 +842,25 @@ def main(argv: list[str] | None = None) -> int:
     # origin. It is gone with the check itself: now that nobody is pinned, a
     # per-caller warning would fire for all of them and say nothing. The line
     # in the banner above says it once, which is the honest amount.
+
+    # The credential the ANSWERING agent will use. Said at startup because it
+    # is the one failure this phone cannot report when it happens: the call
+    # arrives, authenticates, and then the agent cannot start. From the calling
+    # side that reads as a problem with the phone's own token, which is the one
+    # thing that was fine. Cost of not saying it, measured once: 30 hours.
+    ok, detail = _credential_state()
+    if not ok:
+        print(
+            f"  WARNING: the agent that answers cannot authenticate -- {detail}.\n"
+            "           Calls will arrive, pass the door, and die when the agent\n"
+            "           starts. Give the answering user either a stored login in\n"
+            "           its own $HOME or CLAUDE_CODE_OAUTH_TOKEN in the\n"
+            "           environment (EnvironmentFile in the unit).\n"
+            "           A setup token is the sturdier of the two: it does not\n"
+            "           refresh, so several identities cannot rotate each other\n"
+            "           out of their own credential.",
+            file=sys.stderr,
+        )
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 
