@@ -23,8 +23,8 @@ it and get an answer — and gives that agent a way to place calls of its own.
 
 ## The idea in one line
 
-> Anyone can have the phone. Without the number, the token and — if it is
-> required — being on the origin list, you cannot call anybody.
+> Anyone can have the phone. Without the number and the token, you cannot call
+> anybody.
 
 The security lives in the contact list, never in the code. That is why the code
 is public.
@@ -100,13 +100,13 @@ a2aagentphone \
 ```
 
 `--db` is required and is where the **callers** live: who may ring this phone,
-each with their own credential, origins and expiry. There is no other way in.
+each with their own credential and expiry. There is no other way in.
 A phone with an empty table refuses every call, which is the right state for
 one nobody has been introduced to yet — admit somebody deliberately:
 
 ```bash
 sudo a2aagentphone-admin --db /var/lib/a2aagentphone/the-agent \
-     caller add ops --from 192.0.2.10/32 --days 365
+     caller add ops --days 365
 ```
 
 The token is printed **once**. Write it to a `0600` file and hand over the
@@ -230,19 +230,23 @@ Deliberately, so the first version could be evaluated:
 - **It does not talk to a live tmux session.** This is the missing piece and the
   most valuable one.
 - **It does not decide awake/asleep.** It always starts a fresh agent.
-- **The origin check leans on the proxy in front of it.** `allowed_from` is
-  enforced, but behind a reverse proxy the address comes from
-  `X-Forwarded-For`, and this code reads the **leftmost** entry — which is the
-  caller-controlled end whenever a proxy *appends* rather than replaces.
+- **There is no origin check at all, since v0.5.0.** `allowed_from` used to
+  hold CIDRs the credential could be used from, and it was removed rather than
+  repaired. Two things in the ordinary path rewrite the origin before the ear
+  sees it: an agent in a container calling its own host arrives SNAT-ed to the
+  bridge gateway, which is an address belonging to nobody; and the reverse
+  proxy in front decides what `X-Forwarded-For` says at all. The field named
+  the caller's address and held the proxy's opinion of it.
 
-  Measured on 2026-09-22 against Traefik v3.6: a forged
-  `X-Forwarded-For: 203.0.113.9` did **not** take — Traefik discards inbound
-  `X-Forwarded-*` from untrusted clients and sets its own, so the leftmost
-  entry was the real address and the call was attributed correctly. So this is
-  a latent bug rather than an open door *here*. It becomes a real one behind a
-  proxy that appends, or a Traefik with `forwardedHeaders.trustedIPs` set.
-  Until the listener takes the address from the end it can trust, treat the
-  CIDR as a second lock on a stolen token, not as proof of origin.
+  That is worse than not having it, because a control nobody can rely on is
+  still a control an audit believes. The address is still **recorded** —
+  `calls.remote_addr`, with the socket peer in `calls.via` when they differ —
+  because evidence about where a call seemed to come from is worth keeping.
+  Evidence is not a lock, and the mistake was spelling one like the other.
+
+  **What this costs**: the token is now the whole credential. The defence that
+  is left is the one on the other side of the door — what the answering user
+  can do. See [DESIGN.md](DESIGN.md) §6.
 - No card signing, no callback webhook, no socket activation, no cancelling a
   call in progress.
 - **The outbound token is still readable by the agent**: it sits in the
@@ -259,10 +263,11 @@ What *is* built, and verified rather than assumed:
   bound anything, corrected on 2026-09-22 after measuring it: `--allowed-tools`
   only adds to what is auto-approved. It leaves every tool in the catalogue and
   read-only `Bash` still runs. To bar a tool you need `permissions.deny`.
-- **A credential per caller**, in the `callers` table: its own hash, origins,
-  expiry and revocation. Four checks — known, not revoked, not expired, right
-  address — and **all four fail with the same 401**, because saying which one
-  failed tells whoever is probing which part they got right.
+- **A credential per caller**, in the `callers` table: its own hash, expiry and
+  revocation. Three checks — known, not revoked, not expired — and **all three
+  fail with the same 401**, because saying which one failed tells whoever is
+  probing which part they got right. (There was a fourth, on the origin, until
+  v0.5.0.)
 
   The single shared token file that used to sit behind this is **gone as of
   v0.3.0**, and not only because one token cannot be revoked for one caller.

@@ -6,14 +6,16 @@ Two lists, kept apart because their owners are:
 * **contacts** — who this phone may ring. Usable tokens.
 
 Why a command rather than editing a file: every row has fields that must be
-decided rather than defaulted, and a file lets you leave them out. ``allowed_from``
-is the example that matters — leaving it blank would quietly mean "anywhere",
-so here it has to be typed, and "anywhere" is spelled ``0.0.0.0/0`` in full.
+decided rather than defaulted, and a file lets you leave them out. ``--days``
+is the one left: an expiry somebody chose beats an expiry nobody noticed.
 
 A token is shown **once**, when it is minted, and never again: only its hash is
 kept. Carry it by hand from there. Not through a chat with an agent, not
 through a repository -- that moment is the only time the string exists outside
 a protected database, and a transcript keeps everything forever.
+
+``--from`` was the other required decision until v0.5.0 and is now an error
+rather than a silent no-op, for the reason in :func:`_from_removed`.
 """
 
 from __future__ import annotations
@@ -99,6 +101,33 @@ def caller_rotate(args) -> None:
     print("  Shown once. Carry it by hand; tell an agent the PATH, not the value.")
 
 
+def _from_removed(value: str) -> str:
+    """``--from`` is refused loudly rather than accepted and ignored.
+
+    Accepting it silently would be the worse failure by far: an operator types
+    ``--from 10.0.0.0/8``, sees the caller created, and believes the phone now
+    only answers that range. It does not. Nobody audits a flag that was
+    accepted.
+
+    argparse's own "unrecognized arguments: --from" would be honest but says
+    nothing about what changed or what to do instead, so the flag stays
+    registered purely to be able to answer properly.
+    """
+    raise argparse.ArgumentTypeError(
+        "--from was removed in v0.5.0, and calls are no longer filtered by "
+        "origin.\n"
+        "        Between a container's SNAT and a reverse proxy that owns "
+        "X-Forwarded-For,\n"
+        "        the address this phone could read was not reliably the "
+        "caller's, so the\n"
+        "        check was removed rather than left looking like it worked. "
+        "The token is\n"
+        "        now the whole credential: keep --days short, and give the "
+        "answering user\n"
+        "        only what a caller should be able to do. See DESIGN.md section 6."
+    )
+
+
 def caller_add(args) -> None:
     path = db_mod.path_for(_dir(args))
     token = _mint(path, args.alias)
@@ -112,14 +141,13 @@ def caller_add(args) -> None:
     with _conn(path) as c:
         try:
             c.execute(
-                "INSERT INTO callers (alias, token_hash, auth, allowed_from,"
+                "INSERT INTO callers (alias, token_hash, auth,"
                 " scope, expires_at, note, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?)",
+                " VALUES (?,?,?,?,?,?,?)",
                 (
                     args.alias,
                     callers_mod.token_hash(token),
                     args.auth,
-                    args.allowed_from,
                     args.scope,
                     expires,
                     args.note,
@@ -130,7 +158,6 @@ def caller_add(args) -> None:
             sys.exit(f"a2aagentphone-admin: {e}. Is '{args.alias}' already registered?")
 
     print(f"Caller «{args.alias}» added.")
-    print(f"  from:    {args.allowed_from}")
     print(f"  auth:    {args.auth}")
     print(f"  scope:   {args.scope}")
     print(f"  expires: {expires or 'never'}")
@@ -151,7 +178,7 @@ def caller_list(args) -> None:
         return
     for r in rows:
         state = "REVOKED" if r["revoked_at"] else (r["expires_at"] or "never")
-        print(f"{r['alias']:20} {r['auth']:12} {r['allowed_from']:20} {state}")
+        print(f"{r['alias']:20} {r['auth']:12} {r['scope']:12} {state}")
         if r["note"]:
             print(f"  {r['note']}")
 
@@ -282,10 +309,9 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument(
         "--from",
         dest="allowed_from",
-        required=True,
-        help="CIDRs this credential may be used from, comma separated. "
-        "Required on purpose: '0.0.0.0/0' is a valid answer but has to be "
-        "written out, so that 'from anywhere' is a decision and not a blank.",
+        type=_from_removed,
+        default=None,
+        help=argparse.SUPPRESS,  # registered only so it can be refused properly
     )
     a.add_argument("--scope", default="full",
                    help="What this caller was given the number for. Recorded, "

@@ -238,24 +238,28 @@ class BearerAuth:
         bearer = parts[1].strip() if len(parts) == 2 and parts[0].lower() == b"bearer" else b""
 
         # One question, asked once: does this credential belong to a caller who
-        # may ring from here, right now? A hash match gives a NAME, which is
+        # is still admitted, right now? A hash match gives a NAME, which is
         # what makes the log attribution and what makes revoking one caller
         # possible without breaking the others.
         #
         # Note there is no `count()` here any more. It used to gate the
         # fallback, and gating anything on "are there unrevoked callers" is how
         # revoking the last one reopened the shared token.
+        #
+        # And since v0.5.0 the address is not part of the question. It is still
+        # resolved, because the log wants it, but nothing is decided on it: see
+        # callers.py for why a pin the network path rewrites was removed
+        # instead of documented around.
         address = _caller_address(scope)
         caller = (
-            callers_mod.identify(self._callers_db, bearer, address[0])
+            callers_mod.identify(self._callers_db, bearer)
             if bearer and self._callers_db
             else None
         )
         if caller is None:
             # Deliberately the same refusal whatever failed -- nothing
-            # presented, unknown, revoked, expired, or the wrong address.
-            # Saying *which* check failed tells whoever is probing which part
-            # they got right.
+            # presented, unknown, revoked or expired. Saying *which* check
+            # failed tells whoever is probing which part they got right.
             self._refused(scope, "auth_failed", bearer)
             await _refuse(send, b'{"error":"unauthorized"}')
             return
@@ -759,7 +763,8 @@ def main(argv: list[str] | None = None) -> int:
         f"a2aagentphone {__version__}: agent={name} folder={cwd}\n"
         f"  listening on http://{args.host}:{args.port}/\n"
         f"  card advertises {url}\n"
-        f"  callers: {registered} registered, each with its own expiry and origins\n"
+        f"  callers: {registered} registered, each with its own token and expiry\n"
+        f"  origin:  not checked -- the token is the whole credential (v0.5.0)\n"
         f"  auto-approved tools: {args.allowed_tools or 'the defaults'}\n"
         f"  permissions: "
         f"{'FULL -- every caller acts as this user' if args.full_permissions else 'prompted, so nothing that needs approval can run'}\n"
@@ -776,14 +781,13 @@ def main(argv: list[str] | None = None) -> int:
             "  note: nobody is registered, so this phone will refuse every call.\n"
             "        Admit a caller with:\n"
             f"          sudo a2aagentphone-admin --db {args.db} caller add <name> \\\n"
-            "               --from <CIDR> --days 365",
+            "               --days 365",
             file=sys.stderr,
         )
-    # Callers admitted from anywhere, named out loud. An absurdly wide range
-    # written out of convenience looks identical to a considered decision in
-    # the table, and only one of the two is worth a line at every startup.
-    for alias in callers_mod.open_origin(callers_db):
-        print(f"  warning: caller «{alias}» accepts calls from any origin", file=sys.stderr)
+    # There used to be a warning here naming every caller admitted from any
+    # origin. It is gone with the check itself: now that nobody is pinned, a
+    # per-caller warning would fire for all of them and say nothing. The line
+    # in the banner above says it once, which is the honest amount.
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 

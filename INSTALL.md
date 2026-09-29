@@ -68,7 +68,7 @@ left:
    will tell you if the public URL is not answering yet.
 3. **Admit the callers.** The script mints no credential — a fresh phone
    refuses everybody until a person runs `a2aagentphone-admin caller add`, one
-   caller at a time, each with its own origins and expiry (§4). Hand over the
+   caller at a time, each with its own token and expiry (§4). Hand over the
    token's **path**, never its value: callers fetch it over SSH, redirected
    straight to a file, so it never enters a conversation.
 
@@ -390,14 +390,19 @@ Credentials appear one at a time, when a person decides to let someone in:
 
 ```bash
 sudo a2aagentphone-admin --db /var/lib/a2aagentphone/<name> caller add <who> \
-     --from 192.0.2.10/32 --days 365 \
+     --days 365 \
      --note "who this is and when you gave it to them"
 ```
 
-`--from` is required on purpose. `0.0.0.0/0` is a valid answer, but it has to
-be written out, so that *"from anywhere"* is a decision somebody made rather
-than a field nobody filled in. The listener names those callers at every
-startup, so an over-wide range cannot stay quiet.
+**There is no `--from` any more.** It was required until v0.5.0, holding the
+CIDRs a credential could be used from. Calls are no longer filtered by origin
+at all: between a container's SNAT and a reverse proxy that owns
+`X-Forwarded-For`, the address the listener could read was not reliably the
+caller's, so the check was removed rather than left looking like it worked.
+DESIGN.md §6 is the account.
+
+What carries the weight instead: **`--days`**, and **which user answers this
+phone**. The token is now the whole credential.
 
 The token is printed **once**; only its hash is stored. Rules that matter more
 than they look:
@@ -551,7 +556,7 @@ http:
       rule: "Host(`<your-ip>.nip.io`)"
       entryPoints: [websecure]
       service: phone
-      middlewares: [phone-ratelimit, phone-origin]
+      middlewares: [phone-ratelimit]
       tls:
         certResolver: <your resolver name>
 
@@ -570,13 +575,17 @@ http:
         burst: 3
         period: 1m
 
-    # TEMPORARY. The origin check belongs in the listener, against its own
-    # list, so that adding a caller never means editing a proxy. That part is
-    # not written yet, so it lives here in the meantime. Delete it when it is.
-    phone-origin:
-      ipAllowList:
-        sourceRange:
-          - "<caller-ip>/32"
+    # There was a `phone-origin` ipAllowList here until v0.5.0, described as
+    # temporary until the listener could do it. The listener now deliberately
+    # does NOT do it -- see DESIGN.md section 6 -- so this one is gone too
+    # rather than promoted.
+    #
+    # If you add one back, know what it costs: a caller inside a container on
+    # this same host arrives SNAT-ed to the bridge gateway, so the narrowest
+    # honest rule is the whole Docker network. That was measured, and the two
+    # lists disagreeing is what produced a 403 here and a 401 there for the
+    # same call. Your proxy is yours; just do not expect it to tell callers
+    # apart.
 ```
 
 **Do not enable the route before the name resolves.** Let's Encrypt will fail,
@@ -587,15 +596,13 @@ and failures burn your hourly quota, so getting the order wrong is not free.
 ```
 <your-ip>.nip.io {
     reverse_proxy <bind-address>:<port>
-    @notcaller not remote_ip <caller-ip>
-    respond @notcaller 403
 }
 ```
 
 ### nginx
 
 You will need `certbot --nginx` for the certificate, `proxy_pass` to the bind
-address, `allow`/`deny` for the origin, and `limit_req` for the rate limit.
+address, and `limit_req` for the rate limit.
 
 ### Nothing at all
 
@@ -667,11 +674,13 @@ shortest, so whoever gives up first is the one who knows why. The proxy's
 defaults are the ones everybody forgets, and if the proxy is the shortest it
 cuts the call and nobody else notices.
 
-**If you put the origin check in the listener later**, remember the proxy is
-what it will see, not the caller. The real address is the **last** entry of
-`X-Forwarded-For` — the entries before it can be written by the caller. Taking
-the first one is the classic bug: a filter that looks like it works and can be
-forged with a header.
+**Do not put an origin check back.** Not in the listener — it was there, and
+removed in v0.5.0 — and think twice in the proxy. The trap that makes it
+attractive is that it *looks* like it works: the real address is the **last**
+entry of `X-Forwarded-For`, the earlier ones can be written by the caller, and
+the classic bug is taking the first. But even done right it cannot tell apart
+the callers you actually have, because a container calling its own host arrives
+as the bridge gateway. DESIGN.md §6.
 
 **A restart does not extend the expiry.** The deadline is fixed at start from
 the environment file. To extend it you edit it, deliberately.

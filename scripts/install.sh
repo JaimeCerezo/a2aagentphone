@@ -278,7 +278,7 @@ fi
 # which is the honest state of a phone that has not been introduced to anyone
 # yet. Credentials appear when a person admits a caller, one at a time:
 #
-#   sudo a2aagentphone-admin --db /var/lib/a2aagentphone/<name> caller add <who> --from <CIDR>
+#   sudo a2aagentphone-admin --db /var/lib/a2aagentphone/<name> caller add <who> --days 365
 #
 # Rewritten on every run, on purpose: the limits are fleet constants and an
 # update is how a machine that drifted comes back into line.
@@ -392,7 +392,7 @@ if [ "${registered:-0}" -eq 0 ]; then
     echo "          Nobody yet, so it refuses every call. That is the correct"
     echo "          state for a phone nobody has been introduced to. To admit one:"
     echo "            sudo a2aagentphone-admin --db $STATE/$NAME caller add <who> \\"
-    echo "                 --from <CIDR> --days 365"
+    echo "                 --days 365"
     echo "          The token is printed ONCE. Write it to a 0600 file and give"
     echo "          the other end the PATH; never paste the value anywhere."
 fi

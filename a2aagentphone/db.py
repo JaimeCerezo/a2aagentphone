@@ -90,8 +90,6 @@ CREATE TABLE IF NOT EXISTS callers (
   auth         TEXT NOT NULL,       -- 'token' | 'token+mtls'. Per caller, not
                                     -- per phone: some callers earn a stronger
                                     -- claim than others on the same number.
-  allowed_from TEXT NOT NULL,       -- CIDRs. NOT NULL so it has to be decided;
-                                    -- '0.0.0.0/0' says "from anywhere" out loud
   scope        TEXT NOT NULL,
   expires_at   TEXT,
   note         TEXT,
@@ -101,6 +99,13 @@ CREATE TABLE IF NOT EXISTS callers (
                                     -- question you ask after a scare
 );
 """
+# There was an `allowed_from TEXT NOT NULL` here until v0.5.0, holding CIDRs the
+# credential could be used from. It is dropped on the first open of an existing
+# database -- see _migrate. The short version of why: between a container's SNAT
+# and a reverse proxy that owns X-Forwarded-For, the value the ear could read was
+# never reliably the caller's address, so the column named one thing and held
+# another. A field that reads like a control and is not one is worse than its
+# absence, because an audit believes it. callers.py has the long version.
 
 # The log. The same shape on both sides -- the ear records 'in', the dialer
 # records 'out' -- so that one task_id joins the two machines' accounts of the
@@ -260,10 +265,10 @@ def _connect(path: str | Path) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Add columns a database predates.
+    """Bring an existing database up to the current shape.
 
-    ``CREATE TABLE IF NOT EXISTS`` is a no-op on an existing table, so a new
-    column would silently never appear on any machine that already had a log --
+    ``CREATE TABLE IF NOT EXISTS`` is a no-op on an existing table, so a schema
+    change would silently never reach any machine that already had a database --
     the same shape of bug as an update that replaces only the code. Cheap to do
     on every open, and it means a schema change never needs a migration step
     anyone has to remember.
@@ -272,6 +277,28 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for column, decl in (("via", "TEXT"),):
         if column not in have:
             conn.execute(f"ALTER TABLE calls ADD COLUMN {column} {decl}")
+
+    # v0.5.0: the origin filter is gone, so the column that fed it goes too.
+    #
+    # Dropped rather than left in place and ignored. A NOT NULL column called
+    # `allowed_from`, still holding the CIDRs somebody typed, sitting in a table
+    # nothing consults, is precisely the artefact that makes an operator believe
+    # the door still checks where a call came from. The row should not be able
+    # to say something the code does not do.
+    #
+    # DROP COLUMN needs SQLite >= 3.35 (2021). If this is an older library the
+    # column simply stays -- unused and harmless -- rather than the phone
+    # refusing to open its own database over a tidy-up.
+    callers_cols = {r[1] for r in conn.execute("PRAGMA table_info(callers)")}
+    if "allowed_from" in callers_cols:
+        try:
+            conn.execute("ALTER TABLE callers DROP COLUMN allowed_from")
+        except sqlite3.Error as e:
+            print(
+                "a2aagentphone: could not drop the obsolete callers.allowed_from "
+                f"column ({e}). It is no longer read; nothing is filtered by it.",
+                file=sys.stderr,
+            )
 
 
 def _absorb(conn: sqlite3.Connection, old: Path, tables: tuple[str, ...]) -> bool:
@@ -294,6 +321,17 @@ def _absorb(conn: sqlite3.Connection, old: Path, tables: tuple[str, ...]) -> boo
         conn.execute("ATTACH DATABASE ? AS old", (str(old),))
         for table in tables:
             cols = [r[1] for r in conn.execute(f"PRAGMA old.table_info({table})")]
+            if not cols:
+                continue
+            # Only the columns that still exist here. The old file was written
+            # by an older version and can hold fields this one has since
+            # dropped -- `allowed_from` is the first, in v0.5.0. Copying the
+            # old column list verbatim made the INSERT fail, and the failure is
+            # caught below and turned into "did not migrate": the phone would
+            # come up with an empty callers table and refuse every call, with
+            # nothing in the journal pointing at the real cause.
+            here = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            cols = [c for c in cols if c in here]
             if not cols:
                 continue
             names = ", ".join(cols)

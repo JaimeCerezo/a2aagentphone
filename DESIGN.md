@@ -7,8 +7,8 @@
 
 ## The model in one sentence
 
-> **Anyone can have the phone. Without the number, the token and — if it is
-> required — being on the origin list, you cannot call anybody.**
+> **Anyone can have the phone. Without the number and the token, you cannot
+> call anybody.**
 
 Everything else follows from that, including the decision to make the code
 public: the security is not in nobody knowing how it works, it is in the
@@ -44,13 +44,17 @@ value.
 
 ### So what varies is the door, not the room
 
-Three dials, all of them per-caller:
+Two dials, both of them per-caller:
 
 | Dial | What it decides |
 |---|---|
 | **Credential strength** | A bearer token, or a token *plus* a client certificate for callers who need a stronger claim |
-| **Where from** | Which addresses that credential is usable from |
 | **How long, how much** | When it dies, and what it may spend |
+
+There was a third — **where from**, the addresses a credential was usable from —
+and it was removed in v0.5.0 because the network path rewrote the address before
+the door could read it. §6 is the account. Losing a dial makes the fourth thing
+below, which was never a dial, carry more weight than before.
 
 And a fourth that is not a dial but a choice of building: **which user answers.**
 That is what decides the room. A phone is self-contained, so a machine can have
@@ -235,8 +239,9 @@ call already finds it**, with nothing to notify, reload or restart.
 Three more things come with it:
 
 - **"Absent means closed" stops being a convention.** With `NOT NULL` on
-  `allowed_from` and `scope`, the engine refuses to store a row where nobody
-  decided. Not our code checking: the insert simply fails.
+  `scope`, the engine refuses to store a row where nobody decided. Not our code
+  checking: the insert simply fails. `allowed_from` carried the same `NOT NULL`
+  for the same reason until v0.5.0, when the column went — see §6.
 - **Revoke instead of delete.** An `rm` also erases the fact that the thing
   existed. A `revoked_at` column keeps *"who had access in March?"* answerable,
   which is the question you ask after a scare.
@@ -292,8 +297,8 @@ CREATE TABLE callers (
   auth         TEXT NOT NULL,     -- 'token' | 'token+mtls'. Per caller, not
                                   -- per phone: some callers earn a stronger
                                   -- claim than others on the same number.
-  allowed_from TEXT NOT NULL,     -- CIDRs. NOT NULL = you have to decide
-  scope        TEXT NOT NULL,
+  scope        TEXT NOT NULL,     -- an `allowed_from TEXT NOT NULL` sat here
+                                  -- until v0.5.0, holding CIDRs. Dropped: §6
   expires_at   TEXT,
   note         TEXT,
   created_at   TEXT NOT NULL,
@@ -347,7 +352,6 @@ Case: **`ops` wants to be able to call the `portal` agent.**
 
 ```bash
 a2aagentphone caller add ops \
-         --from 192.0.2.10/32 \
          --scope read-only \
          --expires 2027-09-14
 ```
@@ -517,13 +521,15 @@ tunnels you already have the secure channel and A2A on top of it is redundant.
    - If the path is the card, it serves it without asking for anything.
    - That the connection came from the proxy. Since it binds nowhere else,
      there is no other way in.
-   - The real address, which is **the last** entry in `X-Forwarded-For`.
+   - The address, for the log only — see §6. Nothing is decided on it.
    - The token: hash it and look the hash up in `callers`.
-   - **All three conditions on the same row**: that the hash exists, that the
-     address falls inside `allowed_from`, and that it has not expired.
+   - **Both conditions on the same row**: that the hash exists and has not been
+     revoked, and that it has not expired.
 
-   A **valid token arriving from an address that is not its own** is not a user
-   mistake. It is the warning that this token is somewhere it should not be.
+   There used to be a third, on the address, and a line here calling a valid
+   token from the wrong place *"the warning that this token is somewhere it
+   should not be"*. It was a good warning and the network never let us hear it:
+   §6 has what happened.
 
 7. With the row validated, the ear has the **scope**. And the scope is not a
    decorative label: **it decides the arguments Claude is started with.**
@@ -812,69 +818,77 @@ check, not a billing mystery.
 
 ---
 
-## 6. Origin
+## 6. Origin — removed in v0.5.0, and why
 
-**Optional, and decided when the token is minted.** Plenty of people have no
-fixed address — from home, from a cloud box with variable egress, behind carrier
-NAT. If the check were mandatory, either the phone is useless to them or they
-fill in a huge range to be rid of it, which is worse than turning it off
-deliberately.
+**There is no origin check.** A call presents a token; the token identifies a
+caller, or it does not. Where the packet came from is recorded and decides
+nothing.
 
-Deciding it **at mint time** forces the decision: nobody ends up without an
-origin check by accident.
+It was not always so. Until v0.5.0 every caller carried `allowed_from`, a list
+of CIDR ranges the credential could be used from, required at mint time so that
+"from anywhere" had to be typed out as `0.0.0.0/0` rather than left blank. The
+intent was a second lock: a stolen token would still have to be presented from
+the right place.
 
-`allowed_from` is a **list of CIDR ranges**:
+### What killed it: the address was never ours to read
 
-```
-["192.0.2.10/32"]          one address
-["198.51.100.0/24"]        a range
-["0.0.0.0/0", "::/0"]      anybody
-```
+Two things in the ordinary path rewrite the origin before the ear ever sees it,
+and between them they cover most of how this tool is actually deployed.
 
-With the slash. `0.0.0.0` on its own **is a specific address** — the
-"unspecified" one — so a literal comparison would match nothing. What means
-"any" is the `/0` mask.
+**A caller inside a container, ringing a phone on its own host, arrives with the
+source rewritten by SNAT to the bridge gateway.** Not the container's address —
+that information is gone by the time the packet arrives. Measured on
+2026-09-27: calls from a container landed as `172.18.0.1`, the gateway of the
+whole Docker network. Pinning that caller means pinning *every* container on
+that host, which is not a restriction; it is a sentence that reads like one.
 
-### Three traps
+**And the reverse proxy in front owns `X-Forwarded-For`.** What the ear reads is
+whatever the proxy's configuration left behind — trusted, rewritten or
+discarded. Against Traefik v3.6 the forged-header case was measured on
+2026-09-22 and did *not* take, because Traefik discards inbound `X-Forwarded-*`
+from untrusted clients. But that is one proxy, one configuration, one version.
+The check was correct only as long as nothing in the path touched the packet.
 
-**`0.0.0.0/0` means "anybody", IPv6 included** — and this paragraph used to say
-the opposite, which is worth keeping as a correction rather than a silent edit.
-It claimed the mask was IPv4 only, so a call over IPv6 would be rejected: *"it
-closes rather than opens, so it is safe"*. Measured on 2026-09-22: it does not.
-The check short-circuits on either all-zero mask and admits the call.
+So the field named the caller's address and held the proxy's opinion of it.
 
-The behaviour is the right one — somebody who writes "from anywhere" means it —
-but the direction of the error is the lesson. A document describing a
-**fail-closed** trap, over code that **opens**, is worse than no document:
-anyone auditing by reading it audits something that does not exist. Write
-`["0.0.0.0/0", "::/0"]` anyway, so the row says what it does.
+### Why removal rather than repair
 
-**IPv4-mapped addresses.** On a dual-stack box an IPv4 connection can show up as
-`::ffff:192.0.2.10`. Read literally that is an IPv6 address and does not match
-`192.0.2.10/32` even though it is the same machine. **Normalised since v0.3.1**,
-and this trap sat here describing itself, with the fix in the sentence, for as
-long as the code had the bug — *"one line of code, and an hour of confusion if
-forgotten"*, and it was forgotten.
+There was a narrower fix available: read the address from the end of the chain
+the listener can trust, document the container case, tell operators to pin
+gateways. It was rejected, and the reason is the one this document keeps coming
+back to.
 
-The reason it stayed hidden is the same property that makes the door safe: a
-caller who is correctly registered, holding the right token, gets a 401
-**indistinguishable** from unknown, revoked or expired. A deliberately mute
-refusal is exactly the place a bug can sit without ever being reported.
+**A control that is right only under conditions nobody verifies is worse than
+its absence.** Its absence is visible. Its presence is what an audit reads, what
+a threat model counts, and what somebody points at when asked whether the line
+is locked down. Two machines in this fleet had `allowed_from` filled in
+correctly, by someone who had thought about it, and it was discriminating
+nothing on either of them.
 
-**An absent field does not open: it refuses to start.** If empty meant "from
-anywhere", a typo or a deleted line would **open the door silently**. Broken
-configuration has to close.
+The other half of the argument is what the field *cost* while it was there. It
+failed closed and it failed **mute** — by design, since all refusals are
+deliberately indistinguishable. A caller correctly registered, holding the right
+token, pinned to an address the network had rewritten, got a 401 identical to an
+unknown token's. There is no thread to pull. That combination burned a day on
+2026-09-22 and again on 2026-09-27, and it is the same combination that let an
+IPv4-mapped-address bug (`::ffff:192.0.2.10` not matching `192.0.2.10/32`) sit
+in the code for as long as this document sat here describing it.
 
-### And make it visible
+### What replaced it: nothing, and that is the point
 
-The ear **warns at startup**, naming every caller with an open origin:
+No keyword, no "trusted proxy" setting, no default range. The row lost a column
+instead of gaining a mode. Anything that let an operator re-enable it would
+bring back the failure this removed, plus a switch to get wrong.
 
-```
-warning: caller «new-client» accepts calls from any origin
-```
+**The address is still recorded**: `calls.remote_addr`, with the socket peer
+kept alongside in `calls.via` whenever the two differ. That distinction is now
+the whole point of the pair — one is what this process saw with its own eyes,
+the other is what something upstream said. Evidence, read for what it is.
+Evidence is not a lock, and the mistake was letting one be spelled like the
+other.
 
-That also catches something a magic keyword would not: an absurdly wide range
-written out of convenience, like a `/8`.
+Callers admitted before the upgrade keep working; the column is dropped on the
+first open. Nothing to run, nothing to remember.
 
 ### A token is a token
 
@@ -883,10 +897,26 @@ key. But there is a difference worth keeping in mind: **with an API key, the
 worst case if it leaks is somebody spending your quota. Here, the worst case is
 somebody running an agent on your machine.**
 
-So the less origin checking there is, the more the other field on the same row
-matters. The answer to *"a token is a token"* is **make the token grant as
-little as possible**: it is the only defence that does not depend on where the
-token is kept.
+There used to be a hedge here: *"the less origin checking there is, the more the
+other field on the same row matters."* As of v0.5.0 there is no origin checking
+at all, so the hedge is gone and what it was hedging is the whole answer.
+
+**Make the token grant as little as possible.** It is now the only defence, and
+it was always the only one that did not depend on where the token was kept or
+what the network did to the packet on the way. Concretely, and in the order
+that matters:
+
+1. **Who answers.** A token is worth exactly what the answering user can do.
+   That is the real dial, and it is per phone, not per caller.
+2. **`--days`.** An expiry somebody chose. With no second lock on the row, the
+   clock is what bounds a leak nobody noticed.
+3. **Revocation, and a log that names callers.** You cannot revoke what you
+   cannot tell apart, which is why the shared token had to go before this could.
+
+And one number more honest than any of them: **a phone answering as a user with
+`sudo` is a phone whose token is root on that machine.** That is a legitimate
+configuration — half of what a phone is for is being able to act — but it has
+to be chosen out loud, because nothing downstream of the token will catch it.
 
 ---
 
@@ -985,15 +1015,15 @@ Already built, so the rest can be read against it:
   access, so it went on being enforced after the table had taken over — and
   since a past date refuses to start the service, a machine could be killed by
   a deadline belonging to a token nobody had presented in weeks. An expiry
-  belongs to the caller it admits, next to the origins it admits them from.
+  belongs to the caller it admits.
 
 Still missing:
 
 - ~~The command line tool and the databases.~~ **Built**: `a2aagentphone-admin`
   against one `phone.db` per phone.
 - ~~**Multiple tokens on the ear.**~~ **Built, and the single one removed
-  entirely in v0.3.0.** A credential per caller, each with its own origins,
-  expiry and revocation, so the log can say *who* called.
+  entirely in v0.3.0.** A credential per caller, each with its own expiry and
+  revocation, so the log can say *who* called.
 
   Keeping the old shared token as a fallback for a while looked like
   kindness — an upgrade that stops accepting the credential everyone holds is
@@ -1046,5 +1076,6 @@ And two things worth keeping in mind:
 
 - **The `contextId` → Claude session map lives in the ear's memory.** Restart it
   and conversations in flight lose their thread.
-- **If a machine changes address, `allowed_from` stops matching.** It belongs on
-  the checklist for moving or renaming a machine, next to the map.
+- ~~**If a machine changes address, `allowed_from` stops matching.**~~ Gone
+  with the column in v0.5.0 — one item off the checklist for moving or
+  renaming a machine. What stays on it is the map, and the contacts' URLs.
