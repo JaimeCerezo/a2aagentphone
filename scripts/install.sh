@@ -302,7 +302,11 @@ chmod 644 "$ENV_FILE"
 # One call, the same one update.sh makes: commands, mailbox, unit file, fleet
 # limits and databases. Installing and updating place exactly the same things
 # because they run exactly the same code.
-"$VENV/bin/python" -P -m a2aagentphone.deploy converge "$USER_" \
+# The NAME matters as much as the user: the template is shared and names
+# nobody, so converge has to be told WHICH phone answers as $USER_. Without it
+# the user would land on every phone on the machine -- which is the bug this
+# argument exists to have fixed.
+"$VENV/bin/python" -P -m a2aagentphone.deploy converge "$USER_" "$NAME" \
     || die "could not set up the deployment."
 
 systemctl daemon-reload

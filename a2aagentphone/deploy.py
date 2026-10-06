@@ -67,6 +67,12 @@ MAILBOX = f"{STATE}/mailbox.md"
 # disappear, for the same reason the limits are rewritten rather than merged.
 RETIRED = ("A2A_TOKEN_FILE", "A2A_TOKEN_EXPIRES")
 
+# The user the shared template names: syntactically valid, deliberately
+# unresolvable, so an instance without a drop-in fails closed instead of
+# answering as the last phone installed (or, with no User= at all, as root).
+NO_USER = "a2aagentphone-no-such-user"
+UNITDIR = "/etc/systemd/system"
+
 UNIT = """\
 [Unit]
 Description=a2aagentphone phone (%i)
@@ -77,7 +83,25 @@ Wants=network-online.target docker.service
 
 [Service]
 Type=exec
-User={user}
+# Deliberately a user that does not exist, and deliberately NOT absent.
+#
+# This is a template: one file shared by every phone on the machine, and the
+# user that answers is the one thing that is NOT shared -- each phone answers
+# as its own identity. Until 2026-10-06 the installer rendered the user of
+# whichever phone was installed LAST into this line, so a machine with three
+# phones had two lines lying and a fourth instance started without a drop-in
+# would have answered as somebody else's agent, with that agent's sudo and
+# that agent's $HOME. Measured on scm-public the same day: three drop-ins
+# correct, the template still naming scmlogistica-agent.
+#
+# Removing the line is worse, not better: with no User= a service runs as
+# ROOT. So the template names a user that cannot resolve. systemd refuses to
+# start the instance (status 217/USER) and says the name in the journal, which
+# is a phone that does not answer -- noisy, obvious, and nobody else's
+# identity. The real user comes from the per-instance drop-in that converge()
+# writes, `a2aagentphone@<name>.d/user.conf`, which is the only place it is
+# ever recorded.
+User={no_user}
 # Without this the phone says nothing at all. Python block-buffers stdout when
 # it is not a terminal, and a service never exits, so the buffer never
 # flushes: the whole startup banner -- version, where it listens, what it
@@ -159,8 +183,43 @@ WantedBy=multi-user.target
 """
 
 
-def unit_text(user: str) -> str:
-    return UNIT.format(user=user, etc=ETC, venv=VENV)
+def unit_text() -> str:
+    """The template, identical on every machine and for every phone.
+
+    It takes no user: see the comment on ``User=`` in UNIT. Who answers is a
+    per-instance fact and lives in a per-instance drop-in.
+    """
+    return UNIT.format(no_user=NO_USER, etc=ETC, venv=VENV)
+
+
+def dropin_path(name: str) -> str:
+    return f"{UNITDIR}/a2aagentphone@{name}.d/user.conf"
+
+
+DROPIN = """\
+# Written by a2aagentphone's installer. Who answers phone '{name}'.
+#
+# The shared template names a user that does not exist on purpose, so this
+# file is not an override of a working default -- it is the only thing that
+# makes this instance startable at all. Delete it and the phone stops
+# answering; it does not fall back to anybody.
+[Service]
+User={user}
+"""
+
+
+def _dropin_user(name: str) -> str | None:
+    """Who the drop-in already says answers, if anything does."""
+    import os
+
+    path = dropin_path(name)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("User="):
+                return line.split("=", 1)[1].strip()
+    return None
 
 
 def _retire_token_file(path: str, changed: list[str]) -> None:
@@ -190,8 +249,13 @@ def _retire_token_file(path: str, changed: list[str]) -> None:
         changed.append(f"COULD NOT DELETE the retired token at {path} -- remove it yourself")
 
 
-def converge(user: str | None = None) -> list[str]:
+def converge(user: str | None = None, name: str | None = None) -> list[str]:
     """Put the machine into the state an a2aagentphone install is supposed to be in.
+
+    ``user``/``name`` are the phone being installed right now, when there is
+    one. Every other phone's user is read back from its own drop-in, never
+    assumed from this call: an install must not re-point a phone it was not
+    asked about.
 
     **One code path, called by both scripts**, and that is the whole reason it
     exists. Installing and updating used to place different things, so every
@@ -214,8 +278,8 @@ def converge(user: str | None = None) -> list[str]:
     # otherwise break them -- and not at startup, but on the next call, which
     # looks exactly like the other end not answering.
     os.makedirs(BINDIR, exist_ok=True)
-    for name in COMMANDS:
-        src, dst = f"{VENV}/bin/{name}", f"{BINDIR}/{name}"
+    for cmd in COMMANDS:
+        src, dst = f"{VENV}/bin/{cmd}", f"{BINDIR}/{cmd}"
         if not os.path.exists(src):
             continue
         if os.path.islink(dst) and os.readlink(dst) == src:
@@ -223,7 +287,7 @@ def converge(user: str | None = None) -> list[str]:
         if os.path.lexists(dst):
             os.remove(dst)
         os.symlink(src, dst)
-        changed.append(f"command {name} linked")
+        changed.append(f"command {cmd} linked")
 
     # The mailbox, before the phone answers its first call: "do not modify the
     # tool" is only fair if there is somewhere for a finding to go. An agent
@@ -238,23 +302,26 @@ def converge(user: str | None = None) -> list[str]:
 
     # The unit, rendered from this version rather than from a copy in a shell
     # script that can fall behind.
-    unit = "/etc/systemd/system/a2aagentphone@.service"
-    if user is None and os.path.exists(unit):
+    unit = f"{UNITDIR}/a2aagentphone@.service"
+    # Read the old template's user BEFORE overwriting it: on a machine that
+    # predates the drop-ins, that line is the only record of who answers, and
+    # the migration below is the last chance to copy it somewhere real.
+    legacy_user = None
+    current = ""
+    if os.path.exists(unit):
         with open(unit, encoding="utf-8") as fh:
-            for line in fh:
-                if line.startswith("User="):
-                    user = line.split("=", 1)[1].strip()
-                    break
-    if user:
-        wanted = unit_text(user)
-        current = ""
-        if os.path.exists(unit):
-            with open(unit, encoding="utf-8") as fh:
-                current = fh.read()
-        if current != wanted:
-            with open(unit, "w", encoding="utf-8") as fh:
-                fh.write(wanted)
-            changed.append("unit file rewritten")
+            current = fh.read()
+        for line in current.splitlines():
+            if line.startswith("User="):
+                value = line.split("=", 1)[1].strip()
+                if value != NO_USER:
+                    legacy_user = value
+                break
+    wanted = unit_text()
+    if current != wanted:
+        with open(unit, "w", encoding="utf-8") as fh:
+            fh.write(wanted)
+        changed.append("unit file rewritten (the user now lives in a per-phone drop-in)")
 
     # Every phone's settings and databases. The fleet constants are rewritten
     # rather than merged: a limit that drifted is a limit that has to come back
@@ -263,12 +330,40 @@ def converge(user: str | None = None) -> list[str]:
         for entry in sorted(os.listdir(ETC)):
             if not entry.endswith(".env"):
                 continue
-            name = entry[:-4]
+            phone = entry[:-4]
             path = f"{ETC}/{entry}"
+
+            # Who answers THIS phone, in order of how much the answer is
+            # actually known:
+            #   1. the phone we were just told to install -- the caller said so
+            #   2. its own drop-in -- it has been answering as that for a while
+            #   3. the user named in the template we just replaced -- the
+            #      migration. On a machine that never had drop-ins this is not
+            #      a guess: it is literally the user every phone there was
+            #      already running as, so writing it down changes nothing
+            #      except that it stops being shared.
+            # A phone that matches none of the three gets no drop-in and will
+            # not start -- said out loud, because silence here would be a phone
+            # that stops answering for no visible reason.
+            if name is not None and phone == name and user:
+                owner = user
+            else:
+                owner = _dropin_user(phone) or (user if name is None else None) or legacy_user
+            if owner:
+                if _dropin_user(phone) != owner:
+                    os.makedirs(os.path.dirname(dropin_path(phone)), exist_ok=True)
+                    with open(dropin_path(phone), "w", encoding="utf-8") as fh:
+                        fh.write(DROPIN.format(name=phone, user=owner))
+                    changed.append(f"{phone} answers as {owner} (drop-in written)")
+            else:
+                changed.append(
+                    f"{phone} HAS NOBODY TO ANSWER AS and will not start -- "
+                    f"write {dropin_path(phone)} or reinstall it with --user")
+
             with open(path, encoding="utf-8") as fh:
                 lines = fh.read().splitlines()
             wanted_pairs = {
-                "A2A_DB": f"{STATE}/{name}",
+                "A2A_DB": f"{STATE}/{phone}",
                 "A2A_MAX_TURNS": str(MAX_TURNS),
                 "A2A_MAX_BUDGET": MAX_BUDGET,
             }
@@ -298,17 +393,16 @@ def converge(user: str | None = None) -> list[str]:
             if dirty:
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write("\n".join(out) + "\n")
-                changed.append(f"{name} settings updated")
+                changed.append(f"{phone} settings updated")
 
             # The databases, all of them, even the ones nothing writes to yet.
             # An empty table costs nothing; a missing one turns the day you
             # need it into a migration on a live phone.
             from . import db as db_mod
 
-            directory = f"{STATE}/{name}"
+            directory = f"{STATE}/{phone}"
             fresh = not os.path.isdir(directory)
             db_mod.init(directory)
-            owner = user
             if owner:
                 try:
                     info = pwd.getpwnam(owner)
@@ -332,7 +426,7 @@ def converge(user: str | None = None) -> list[str]:
             # db._group_shared for what it cost to learn.
             db_mod._chmod_if_needed(directory, db_mod._dir_mode(directory))
             if fresh:
-                changed.append(f"{name} databases created")
+                changed.append(f"{phone} databases created")
 
     return changed
 
@@ -341,18 +435,19 @@ def main(argv: list[str] | None = None) -> int:
     """Tiny CLI for the shell scripts. Not meant for people."""
     args = sys.argv[1:] if argv is None else argv
     if args and args[0] == "unit":
-        if len(args) < 2:
-            print("usage: -m a2aagentphone.deploy unit <user>", file=sys.stderr)
-            return 2
-        sys.stdout.write(unit_text(args[1]))
+        # No argument any more, and extra ones are ignored rather than an
+        # error: a half-updated machine whose shell script still passes a user
+        # should print the right template, not fail the install.
+        sys.stdout.write(unit_text())
         return 0
     if args and args[0] == "converge":
         user = args[1] if len(args) > 1 else None
+        name = args[2] if len(args) > 2 else None
         # Each item carries its own verb. A single trailing "updated" turned
         # "retired shared token /etc/a2aagentphone/x.token" into a line claiming the
         # file had been updated, when converge had just deleted it -- the one
         # destructive thing it does, described as the mildest.
-        for item in converge(user):
+        for item in converge(user, name):
             print(f"  {item}")
         return 0
     if args and args[0] == "constants":
@@ -378,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f'MAX_BUDGET="{MAX_BUDGET}"')
         print(f'STATE="{STATE}"')
         return 0
-    print("usage: -m a2aagentphone.deploy {unit <user>|constants|converge [user]}", file=sys.stderr)
+    print("usage: -m a2aagentphone.deploy {unit|constants|converge [user [name]]}", file=sys.stderr)
     return 2
 
 
